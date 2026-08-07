@@ -1,0 +1,16 @@
+import React from 'react';
+import { Feather } from '@expo/vector-icons';
+import { router } from 'expo-router';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Avatar, Screen, SectionTitle, SecondaryButton } from '@/components/AttendaUI';
+import { useAttendance } from '@/context/AttendanceContext';
+import { useColors } from '@/hooks/useColors';
+
+export default function Profile() {
+  const colors = useColors();
+  const { account } = useAttendance();
+  if (!account) return null;
+  const items = [['Student ID', account.studentId], ['Year level', account.yearLevel], ['Program', account.program], ['Sex', account.sex]];
+  return <Screen><View style={styles.top}><Text style={[styles.title, { color: colors.primary }]}>My profile</Text><Pressable onPress={() => router.push('/(tabs)/settings')}><Feather name="sliders" size={21} color={colors.primary} /></Pressable></View><View style={[styles.profileHero, { backgroundColor: colors.secondary }]}><Avatar uri={account.photoUri} name={account.fullName} size={88} /><View style={{ flex: 1 }}><Text style={[styles.name, { color: colors.primary }]}>{account.fullName}</Text><View style={styles.status}><Feather name="check-circle" size={14} color={colors.success} /><Text style={[styles.statusText, { color: colors.success }]}>Registered student</Text></View></View></View><SecondaryButton label={account.photoUri ? 'Change profile photo' : 'Add profile photo'} icon="camera" onPress={() => router.push('/photo')} /><SectionTitle eyebrow="Student details" title="On file with campus" />{items.map(([label, value]) => <View key={label} style={[styles.detailRow, { borderBottomColor: colors.border }]}><Text style={[styles.detailLabel, { color: colors.mutedForeground }]}>{label}</Text><Text style={[styles.detailValue, { color: colors.foreground }]}>{value}</Text></View>)}<View style={[styles.privacy, { backgroundColor: colors.muted }]}><Feather name="shield" size={17} color={colors.success} /><Text style={[styles.privacyText, { color: colors.inkSoft }]}>This profile is private to your student account and stored on this device.</Text></View></Screen>;
+}
+const styles = StyleSheet.create({ top: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 }, title: { fontSize: 29, fontWeight: '800', letterSpacing: -1 }, profileHero: { borderRadius: 22, padding: 18, flexDirection: 'row', alignItems: 'center', gap: 15, marginBottom: 15 }, name: { fontSize: 21, fontWeight: '800' }, status: { flexDirection: 'row', alignItems: 'center', gap: 5, marginTop: 7 }, statusText: { fontSize: 12, fontWeight: '800' }, detailRow: { flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 17, borderBottomWidth: 1 }, detailLabel: { fontSize: 13, fontWeight: '600' }, detailValue: { fontSize: 14, fontWeight: '800', maxWidth: '58%', textAlign: 'right' }, privacy: { borderRadius: 16, padding: 14, flexDirection: 'row', gap: 9, marginTop: 25 }, privacyText: { flex: 1, fontSize: 12, lineHeight: 18, fontWeight: '600' } });

@@ -1,0 +1,24 @@
+kind = "mobile"
+previewPath = "/student-attendance/"
+title = "Student Attendance"
+description = "A student mobile app for certified registration, profile management, photo-based identity verification, and viewing attendance records from school events."
+version = "1.0.0"
+id = "artifacts/student-attendance"
+router = "expo-domain"
+
+[[services]]
+name = "expo"
+ensurePreviewReachable = "/status"
+paths = [ "/student-attendance/" ]
+localPort = 25043
+
+[services.development]
+run = "pnpm --filter @workspace/student-attendance run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/student-attendance", "run", "build" ]
+run = [ "pnpm", "--filter", "@workspace/student-attendance", "run", "serve" ]
+
+[services.env]
+PORT = "25043"
+BASE_PATH = "/student-attendance/"

@@ -1,0 +1,1 @@
+- [Student-first milestone](student-first-milestone.md) — the first shipped surface is a local-first student portal; event QR operations stay exclusively outside the student experience.
