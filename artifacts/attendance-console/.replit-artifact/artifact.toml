@@ -1,0 +1,28 @@
+kind = "web"
+previewPath = "/"
+title = "Attenda Console"
+description = "A role-protected staff console for managing certified students, events, attendance sessions, officers, event QR codes, and printable attendance records."
+version = "1.0.0"
+id = "artifacts/attendance-console"
+router = "path"
+
+[[services]]
+name = "web"
+paths = [ "/" ]
+localPort = 23834
+
+[services.development]
+run = "pnpm --filter @workspace/attendance-console run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/attendance-console", "run", "build" ]
+serve = "static"
+publicDir = "artifacts/attendance-console/dist/public"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
+
+[services.env]
+PORT = "23834"
+BASE_PATH = "/"

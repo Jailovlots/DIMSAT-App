@@ -3,7 +3,12 @@
   "version": "0.0.0",
   "license": "MIT",
   "scripts": {
-    "preinstall": "sh -c 'rm -f package-lock.json yarn.lock; case \"$npm_config_user_agent\" in pnpm/*) ;; *) echo \"Use pnpm instead\" >&2; exit 1 ;; esac'",
+    "preinstall": "npx --yes only-allow pnpm",
+    "dev": "pnpm --parallel --filter \"@workspace/api-server\" --filter \"@workspace/attendance-console\" run dev",
+    "dev:backend": "pnpm --filter @workspace/api-server run dev",
+    "dev:console": "pnpm --filter @workspace/attendance-console run dev",
+    "dev:student": "pnpm --filter @workspace/student-attendance run dev",
+    "start": "pnpm --filter @workspace/api-server run start",
     "build": "pnpm run typecheck && pnpm -r --if-present run build",
     "typecheck:libs": "tsc --build",
     "typecheck": "pnpm run typecheck:libs && pnpm -r --filter \"./artifacts/**\" --filter \"./scripts\" --if-present run typecheck"
@@ -13,6 +18,7 @@
     "@replit/connectors-sdk": "^0.4.1"
   },
   "devDependencies": {
+    "@rollup/rollup-win32-x64-msvc": "^4.62.4",
     "prettier": "^3.9.6",
     "typescript": "~5.9.3"
   }

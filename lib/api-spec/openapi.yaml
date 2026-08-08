@@ -1,22 +1,24 @@
 openapi: 3.1.0
 info:
-  # Do not change the title, if the title changes, the import paths will be broken
   title: Api
   version: 0.1.0
-  description: API specification
+  description: Attenda attendance management API
 servers:
   - url: /api
-    description: Base API path
 tags:
   - name: health
-    description: Health operations
+  - name: dashboard
+  - name: students
+  - name: events
+  - name: attendance
+  - name: officers
+  - name: settings
 paths:
   /healthz:
     get:
       operationId: healthCheck
       tags: [health]
-      summary: Health check
-      description: Returns server health status
+      summary: Returns server health status
       responses:
         "200":
           description: Healthy
@@ -24,13 +26,405 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/HealthStatus"
+  /dashboard:
+    get:
+      operationId: getDashboard
+      tags: [dashboard]
+      summary: Returns staff dashboard totals and current session
+      responses:
+        "200":
+          description: Dashboard summary
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Dashboard"
+  /students:
+    get:
+      operationId: listStudents
+      tags: [students]
+      summary: Lists certified students
+      parameters:
+        - in: query
+          name: search
+          schema: { type: string }
+        - in: query
+          name: yearLevel
+          schema: { type: string }
+        - in: query
+          name: program
+          schema: { type: string }
+        - in: query
+          name: sort
+          schema:
+            type: string
+            enum: [name, studentId, yearLevel, program]
+      responses:
+        "200":
+          description: Student list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Student"
+  /students/import:
+    post:
+      operationId: importStudents
+      tags: [students]
+      summary: Imports validated certified students
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/StudentImport"
+      responses:
+        "201":
+          description: Import result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ImportResult"
+  /events:
+    get:
+      operationId: listEvents
+      tags: [events]
+      responses:
+        "200":
+          description: Events
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Event"
+    post:
+      operationId: createEvent
+      tags: [events]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/EventInput"
+      responses:
+        "201":
+          description: Created event
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Event"
+  /events/{eventId}/qr:
+    post:
+      operationId: generateEventQr
+      tags: [events]
+      parameters:
+        - in: path
+          name: eventId
+          required: true
+          schema: { type: number }
+      responses:
+        "200":
+          description: Event QR metadata
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EventQr"
+  /attendance:
+    get:
+      operationId: listAttendance
+      tags: [attendance]
+      parameters:
+        - in: query
+          name: search
+          schema: { type: string }
+        - in: query
+          name: eventId
+          schema: { type: number }
+        - in: query
+          name: session
+          schema: { type: string }
+      responses:
+        "200":
+          description: Attendance records
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/AttendanceRecord"
+  /attendance/scan:
+    post:
+      operationId: scanAttendance
+      tags: [attendance]
+      summary: Resolves an event QR and student for officer verification
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ScanInput"
+      responses:
+        "200":
+          description: Verification candidate
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VerificationCandidate"
+  /attendance/confirm:
+    post:
+      operationId: confirmAttendance
+      tags: [attendance]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AttendanceInput"
+      responses:
+        "201":
+          description: Confirmed attendance
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AttendanceRecord"
+  /officers:
+    get:
+      operationId: listOfficers
+      tags: [officers]
+      responses:
+        "200":
+          description: Officer list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Officer"
+    post:
+      operationId: createOfficer
+      tags: [officers]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/OfficerInput"
+      responses:
+        "201":
+          description: Created officer
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Officer"
+  /settings:
+    get:
+      operationId: getSettings
+      tags: [settings]
+      responses:
+        "200":
+          description: System settings
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Settings"
+    patch:
+      operationId: updateSettings
+      tags: [settings]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SettingsInput"
+      responses:
+        "200":
+          description: Updated settings
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Settings"
 components:
   schemas:
     HealthStatus:
       type: object
+      required: [status]
       properties:
-        status:
-          type: string
-      required:
-        - status
-
+        status: { type: string }
+    Student:
+      type: object
+      required: [id, studentId, fullName, yearLevel, program, sex, status, profilePhoto]
+      properties:
+        id: { type: number }
+        studentId: { type: string }
+        fullName: { type: string }
+        yearLevel: { type: string }
+        program: { type: string }
+        sex: { type: string }
+        status: { type: string }
+        profilePhoto: { type: ["string", "null"] }
+    StudentImport:
+      type: object
+      required: [rows]
+      properties:
+        rows:
+          type: array
+          items:
+            $ref: "#/components/schemas/StudentImportRow"
+    StudentImportRow:
+      type: object
+      required: [fullName, studentId, yearLevel, program, sex]
+      properties:
+        fullName: { type: string }
+        studentId: { type: string }
+        yearLevel: { type: string }
+        program: { type: string }
+        sex: { type: string }
+    ImportResult:
+      type: object
+      required: [total, valid, duplicates, missing, invalid]
+      properties:
+        total: { type: number }
+        valid: { type: number }
+        duplicates: { type: number }
+        missing: { type: number }
+        invalid: { type: number }
+    Event:
+      type: object
+      required: [id, name, description, eventDate, venue, status, qrStatus, sessions, totalStudents, presentCount]
+      properties:
+        id: { type: number }
+        name: { type: string }
+        description: { type: string }
+        eventDate: { type: string }
+        venue: { type: string }
+        status: { type: string }
+        qrStatus: { type: string }
+        sessions:
+          type: array
+          items:
+            $ref: "#/components/schemas/AttendanceSession"
+        totalStudents: { type: number }
+        presentCount: { type: number }
+    EventInput:
+      type: object
+      required: [name, description, eventDate, venue, startTime, endTime, sessions]
+      properties:
+        name: { type: string, minLength: 1 }
+        description: { type: string }
+        eventDate: { type: string }
+        venue: { type: string }
+        startTime: { type: string }
+        endTime: { type: string }
+        sessions:
+          type: array
+          minItems: 1
+          items:
+            $ref: "#/components/schemas/SessionInput"
+    SessionInput:
+      type: object
+      required: [name, startTime, endTime, enabled]
+      properties:
+        name: { type: string }
+        startTime: { type: string }
+        endTime: { type: string }
+        enabled: { type: boolean }
+    AttendanceSession:
+      type: object
+      required: [id, name, startTime, endTime, enabled, active]
+      properties:
+        id: { type: number }
+        name: { type: string }
+        startTime: { type: string }
+        endTime: { type: string }
+        enabled: { type: boolean }
+        active: { type: boolean }
+    EventQr:
+      type: object
+      required: [eventId, token, status]
+      properties:
+        eventId: { type: number }
+        token: { type: string }
+        status: { type: string }
+    AttendanceRecord:
+      type: object
+      required: [id, studentName, studentId, yearLevel, eventName, sessionName, scannedAt, officerName, status]
+      properties:
+        id: { type: number }
+        studentName: { type: string }
+        studentId: { type: string }
+        yearLevel: { type: string }
+        eventName: { type: string }
+        sessionName: { type: string }
+        scannedAt: { type: string }
+        officerName: { type: string }
+        status: { type: string }
+    ScanInput:
+      type: object
+      required: [eventToken, studentId]
+      properties:
+        eventToken: { type: string }
+        studentId: { type: string }
+    VerificationCandidate:
+      type: object
+      required: [studentId, studentName, yearLevel, program, profilePhoto, eventName, sessionName, alreadyRecorded, message]
+      properties:
+        studentId: { type: string }
+        studentName: { type: string }
+        yearLevel: { type: string }
+        program: { type: string }
+        profilePhoto: { type: ["string", "null"] }
+        eventName: { type: string }
+        sessionName: { type: string }
+        alreadyRecorded: { type: boolean }
+        message: { type: ["string", "null"] }
+    AttendanceInput:
+      type: object
+      required: [eventToken, studentId]
+      properties:
+        eventToken: { type: string }
+        studentId: { type: string }
+    Officer:
+      type: object
+      required: [id, officerId, fullName, email, status]
+      properties:
+        id: { type: number }
+        officerId: { type: string }
+        fullName: { type: string }
+        email: { type: string }
+        status: { type: string }
+    OfficerInput:
+      type: object
+      required: [officerId, fullName, email]
+      properties:
+        officerId: { type: string }
+        fullName: { type: string }
+        email: { type: string }
+    Settings:
+      type: object
+      required: [schoolName, campusName, maxPhotoUploads, automaticSessions, duplicateProtection, attendanceConfirmation]
+      properties:
+        schoolName: { type: string }
+        campusName: { type: string }
+        maxPhotoUploads: { type: number }
+        automaticSessions: { type: boolean }
+        duplicateProtection: { type: boolean }
+        attendanceConfirmation: { type: boolean }
+    SettingsInput:
+      type: object
+      properties:
+        schoolName: { type: string }
+        campusName: { type: string }
+        maxPhotoUploads: { type: number }
+        automaticSessions: { type: boolean }
+        duplicateProtection: { type: boolean }
+        attendanceConfirmation: { type: boolean }
+    Dashboard:
+      type: object
+      required: [studentCount, eventCount, attendanceCount, activeSession, latestEvent]
+      properties:
+        studentCount: { type: number }
+        eventCount: { type: number }
+        attendanceCount: { type: number }
+        activeSession: { type: ["string", "null"] }
+        latestEvent: { $ref: "#/components/schemas/Event" }
