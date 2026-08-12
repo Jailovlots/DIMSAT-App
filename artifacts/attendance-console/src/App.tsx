@@ -229,7 +229,7 @@ function AppShell({ children }: { children: React.ReactNode }) {
       </aside>
       {mobileOpen && <button aria-label="Close menu" data-testid="button-close-menu" className="fixed inset-0 z-30 bg-sidebar/40 md:hidden" onClick={() => setMobileOpen(false)} />}
       <main className="md:pl-[275px]">
-        <header className="sticky top-0 z-20 flex h-[68px] items-center justify-between border-b border-border/70 bg-background/90 px-5 backdrop-blur-md md:px-9">
+        <header className="sticky top-0 z-20 flex h-[60px] items-center justify-between border-b border-border/70 bg-background/90 px-4 backdrop-blur-md md:px-7">
           <button aria-label="Open menu" data-testid="button-open-menu" onClick={() => setMobileOpen(true)} className="rounded-lg p-2 text-muted-foreground hover:bg-muted md:hidden">
             <Menu className="size-5" />
           </button>
@@ -245,7 +245,7 @@ function AppShell({ children }: { children: React.ReactNode }) {
             </button>
           </div>
         </header>
-        <div className="mx-auto max-w-[1440px] px-5 py-7 md:px-9 lg:py-9">{children}</div>
+        <div className="mx-auto max-w-[1440px] px-4 py-5 md:px-7 md:py-6">{children}</div>
       </main>
     </div>
   );
@@ -254,11 +254,11 @@ function AppShell({ children }: { children: React.ReactNode }) {
 
 function PageHeader({ eyebrow, title, description, action }: { eyebrow: string; title: string; description: string; action?: React.ReactNode }) {
   return (
-    <div className="mb-8 flex flex-col justify-between gap-5 md:flex-row md:items-end">
+    <div className="mb-5 flex flex-col justify-between gap-3 md:flex-row md:items-end">
       <div className="rise-in">
-        <div className="mb-2 font-mono text-[10px] font-medium uppercase tracking-[.18em] text-primary">{eyebrow}</div>
-        <h1 className="text-[27px] font-extrabold tracking-[-.06em] text-foreground md:text-[34px]">{title}</h1>
-        <p className="mt-2 max-w-xl text-[13px] leading-6 text-muted-foreground">{description}</p>
+        <div className="mb-1 font-mono text-[10px] font-medium uppercase tracking-[.18em] text-primary">{eyebrow}</div>
+        <h1 className="text-[22px] font-extrabold tracking-[-.05em] text-foreground md:text-[26px]">{title}</h1>
+        <p className="mt-1 max-w-xl text-[12px] leading-5 text-muted-foreground">{description}</p>
       </div>
       {action && <div className="rise-in delay-1">{action}</div>}
     </div>
@@ -288,48 +288,53 @@ function Landing() {
   const [, setLocation] = useLocation();
   return (
     <div
-      className="relative min-h-[100dvh] overflow-hidden bg-cover bg-center bg-no-repeat text-white"
+      className="relative flex h-[100dvh] w-full flex-col justify-between overflow-hidden bg-cover bg-center bg-no-repeat text-white"
       style={{ backgroundImage: "url('/zdspgc-campus.jpg')" }}
     >
-      {/* Semi-transparent overlay — keeps text readable while letting the campus photo show clearly */}
-      <div className="absolute inset-0 bg-[#091530]/70" />
+      {/* Semi-transparent overlay — keeps text readable while letting campus photo show clearly */}
+      <div className="absolute inset-0 bg-[#091530]/75" />
 
-      <nav className="relative mx-auto flex max-w-7xl items-center justify-between px-6 py-6 md:px-10">
+      {/* Top Navbar */}
+      <nav className="relative z-10 mx-auto flex w-full max-w-7xl items-center justify-between px-6 py-5 md:px-10">
         <Logo dark size="lg" />
-        <div className="flex items-center gap-4">
-          <button
-            data-testid="button-landing-sign-in"
-            onClick={() => setLocation('/sign-in')}
-            className="rounded-xl bg-[#ffb703] hover:bg-[#ffa000] text-[#08132b] px-6 py-2.5 text-[14px] font-black shadow-md transition-transform hover:scale-105"
-          >
-            Sign In
-          </button>
-        </div>
+        <button
+          data-testid="button-landing-sign-in"
+          onClick={() => setLocation('/sign-in')}
+          className="rounded-xl bg-[#ffb703] hover:bg-[#ffa000] text-[#08132b] px-6 py-2 text-[14px] font-black shadow-md transition-transform hover:scale-105"
+        >
+          Sign In
+        </button>
       </nav>
 
-      <section className="relative mx-auto grid max-w-7xl items-center gap-14 px-6 pb-24 pt-12 md:grid-cols-[1.15fr_.85fr] md:px-10 md:pb-32 md:pt-20">
-        <div className="rise-in">
-          <div className="mb-6 inline-flex items-center gap-2 rounded-full border border-[#ffb703]/50 bg-[#ffb703]/10 px-4 py-1.5 font-mono text-[11px] font-bold uppercase tracking-[.15em] text-[#ffb703] backdrop-blur-md">
-            <QrCode className="size-4 text-[#ffb703]" /> QR-Powered Attendance
+      {/* Main Hero Section — Centered vertically */}
+      <main className="relative z-10 mx-auto my-auto flex w-full max-w-7xl flex-col justify-center px-6 py-4 md:px-10">
+        <div className="rise-in max-w-3xl">
+          <div className="mb-4 inline-flex items-center gap-2 rounded-full border border-[#ffb703]/50 bg-[#ffb703]/10 px-3.5 py-1 font-mono text-[10px] font-bold uppercase tracking-[.15em] text-[#ffb703] backdrop-blur-md md:text-[11px]">
+            <QrCode className="size-3.5 text-[#ffb703]" /> QR-Powered Attendance System
           </div>
-          <h1 className="max-w-3xl font-['Playfair_Display',Georgia,serif] text-5xl font-black leading-[1.05] text-white md:text-7xl">
+          <h1 className="font-['Playfair_Display',Georgia,serif] text-3xl font-black leading-[1.1] text-white sm:text-4xl md:text-5xl lg:text-6xl">
             Smart Attendance for BSIS<br />
             <span className="text-[#ffb703]">ZDSPGC-Dimataling Campus</span>
           </h1>
-          <p className="mt-6 max-w-xl text-[16px] leading-8 text-slate-200/90 font-medium">
+          <p className="mt-4 max-w-xl text-xs sm:text-sm md:text-base leading-relaxed text-slate-200/90 font-medium">
             A secure, modern attendance monitoring system using encrypted QR codes. Track attendance in real-time with interactive dashboards and automated reports.
           </p>
-          <div className="mt-9 flex flex-wrap items-center gap-4">
+          <div className="mt-6 flex flex-wrap items-center gap-4">
             <button
               data-testid="button-hero-sign-in"
               onClick={() => setLocation('/sign-in')}
-              className="rounded-xl bg-[#ffb703] hover:bg-[#ffa000] text-[#08132b] px-8 py-3.5 text-[15px] font-black shadow-xl transition-all hover:-translate-y-0.5"
+              className="rounded-xl bg-[#ffb703] hover:bg-[#ffa000] text-[#08132b] px-7 py-3 text-[14px] font-black shadow-xl transition-all hover:-translate-y-0.5"
             >
               Sign In to Console
             </button>
           </div>
         </div>
-      </section>
+      </main>
+
+      {/* Footer Branding Bar */}
+      <footer className="relative z-10 border-t border-white/10 bg-black/20 backdrop-blur-sm px-6 py-3 text-center font-mono text-[11px] text-slate-300">
+        Zamboanga del Sur Provincial Government College — Dimataling Campus Attendance Portal
+      </footer>
     </div>
   );
 }
@@ -385,42 +390,42 @@ function SignIn() {
   };
 
   return (
-    <div className="grid min-h-[100dvh] md:grid-cols-[1fr_1fr]">
-      <div className="relative hidden bg-sidebar p-10 text-white md:flex md:flex-col overflow-hidden bg-cover bg-center" style={{ backgroundImage: "url('/zdspgc-campus.jpg')" }}>
+    <div className="grid h-[100dvh] w-full overflow-hidden md:grid-cols-[1fr_1fr]">
+      <div className="relative hidden bg-sidebar p-8 text-white md:flex md:flex-col overflow-hidden bg-cover bg-center" style={{ backgroundImage: "url('/zdspgc-campus.jpg')" }}>
         {/* Dark overlay — lets campus photo show while keeping text crisp */}
-        <div className="absolute inset-0 bg-[#071020]/72" />
-        <div className="relative z-10 flex flex-col h-full">
+        <div className="absolute inset-0 bg-[#071020]/75" />
+        <div className="relative z-10 flex flex-col h-full justify-between">
           <Logo dark size="lg" />
-          <div className="mt-auto max-w-md">
-            <div className="mb-4 font-mono text-[10px] uppercase tracking-[.2em] text-[#ffb703] drop-shadow-md">
+          <div className="my-auto max-w-md">
+            <div className="mb-3 font-mono text-[10px] uppercase tracking-[.2em] text-[#ffb703] drop-shadow-md">
               Staff access / ZDSPGC
             </div>
-            <h1 className="text-5xl font-extrabold leading-[1.05] tracking-[-.06em] text-white drop-shadow-lg">
+            <h1 className="text-4xl font-extrabold leading-[1.08] tracking-[-.05em] text-white drop-shadow-lg lg:text-5xl">
               A calmer way<br />to keep count.
             </h1>
-            <p className="mt-6 text-sm leading-7 text-white/75">
+            <p className="mt-4 text-xs lg:text-sm leading-6 text-white/80">
               Private tools for school administrators and attendance officers.
             </p>
           </div>
-          <div className="mt-auto pt-20 font-mono text-[9px] uppercase tracking-[.16em] text-white/40">
+          <div className="font-mono text-[9px] uppercase tracking-[.16em] text-white/40">
             ZDSPGC Dimataling Campus · DIMSAT Console
           </div>
         </div>
       </div>
 
-      <div className="flex items-center justify-center bg-background px-6 py-12">
-        <div className="w-full max-w-[390px] rise-in">
+      <div className="flex items-center justify-center bg-background px-6 py-6 overflow-y-auto">
+        <div className="w-full max-w-[380px] rise-in">
           <div className="md:hidden"><Logo /></div>
-          <div className="mt-12 md:mt-0">
+          <div className="mt-8 md:mt-0">
             <div className="font-mono text-[10px] uppercase tracking-[.16em] text-primary">Welcome back</div>
-            <h2 className="mt-3 text-3xl font-extrabold tracking-[-.06em]">Sign in to DIMSAT</h2>
-            <p className="mt-2 text-sm leading-6 text-muted-foreground">Use your school staff identity to continue.</p>
-            <form onSubmit={handleSubmit} className="mt-9 grid gap-4">
+            <h2 className="mt-2 text-2xl font-extrabold tracking-[-.05em] sm:text-3xl">Sign in to DIMSAT</h2>
+            <p className="mt-1 text-xs leading-5 text-muted-foreground">Use your school staff identity to continue.</p>
+            <form onSubmit={handleSubmit} className="mt-6 grid gap-3.5">
               <Field label="Work email" value={email} onChange={setEmail} placeholder="name@school.edu" />
               <Field label="Password" value={password} onChange={setPassword} placeholder="Enter your password" type="password" />
               {error && <div className="text-xs font-semibold text-red-500">{error}</div>}
-              <Button type="submit" disabled={loading} data-testid="button-submit-sign-in" className="mt-2 h-11 w-full">
-                {loading ? 'Signing in…' : 'Continue'} <ArrowRight className="size-4" />
+              <Button type="submit" disabled={loading} data-testid="button-submit-sign-in" className="mt-1 h-10 w-full text-xs">
+                {loading ? 'Signing in…' : 'Continue'} <ArrowRight className="size-3.5" />
               </Button>
             </form>
             <div className="my-7 flex items-center gap-3 text-[10px] text-muted-foreground">
