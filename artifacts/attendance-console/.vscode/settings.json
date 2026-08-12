@@ -1,0 +1,9 @@
+{
+  // Disable the built-in CSS validator — it doesn't understand Tailwind v4
+  // at-rules like @plugin, @theme, @custom-variant, and @apply.
+  // The project uses Tailwind v4 which validates CSS at build time instead.
+  "css.validate": false,
+  "css.lint.unknownAtRules": "ignore",
+  "scss.validate": false,
+  "less.validate": false
+}

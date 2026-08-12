@@ -1,5 +1,6 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import React, { createContext, ReactNode, useCallback, useContext, useEffect, useMemo, useState } from 'react';
+import { API_URL } from '@/constants/api';
 
 export type Account = {
   studentId: string;
@@ -27,23 +28,6 @@ export type Session = {
 const STORAGE_KEY = '@attenda/local-state-v1';
 export const MAX_PROFILE_PHOTO_CHANGES = 2;
 
-export const CERTIFIED_STUDENTS: CertifiedStudent[] = [
-  {
-    studentId: 'AT-2026-0042',
-    fullName: 'Maya Santos',
-    yearLevel: '2nd Year',
-    program: 'BA Communication',
-    sex: 'Female',
-  },
-  {
-    studentId: 'AT-2026-0118',
-    fullName: 'Liam Navarro',
-    yearLevel: '1st Year',
-    program: 'BS Information Technology',
-    sex: 'Male',
-  },
-];
-
 export const ATTENDANCE_SESSIONS: Session[] = [
   { id: 's1', label: 'Opening Assembly', date: 'August 18, 2026', time: '8:00 AM', status: 'Present', detail: 'Checked in and registered' },
   { id: 's2', label: 'Campus Welcome', date: 'August 18, 2026', time: '10:30 AM', status: 'Present', detail: 'Checked in and registered' },
@@ -58,11 +42,13 @@ type ContextValue = {
   account: Account | null;
   isReady: boolean;
   sessions: Session[];
+  certifiedStudents: CertifiedStudent[];
   register: (student: CertifiedStudent, password: string) => Promise<{ ok: boolean; error?: string }>;
   login: (studentId: string, password: string) => Promise<{ ok: boolean; error?: string }>;
   logout: () => Promise<void>;
   updatePhoto: (uri: string) => Promise<{ ok: boolean; error?: string }>;
   setNotifications: (value: boolean) => Promise<void>;
+  lookupStudent: (studentId: string, fullName: string) => Promise<{ ok: boolean; student?: CertifiedStudent; error?: string }>;
 };
 
 const AttendanceContext = createContext<ContextValue | null>(null);
@@ -70,7 +56,9 @@ const AttendanceContext = createContext<ContextValue | null>(null);
 export function AttendanceProvider({ children }: { children: ReactNode }) {
   const [state, setState] = useState<StoredState>({ accounts: [], activeStudentId: null });
   const [isReady, setIsReady] = useState(false);
+  const [certifiedStudents, setCertifiedStudents] = useState<CertifiedStudent[]>([]);
 
+  // Load local storage state
   useEffect(() => {
     AsyncStorage.getItem(STORAGE_KEY)
       .then((raw) => {
@@ -85,16 +73,94 @@ export function AttendanceProvider({ children }: { children: ReactNode }) {
       .finally(() => setIsReady(true));
   }, []);
 
+  // Fetch certified students from API on mount
+  useEffect(() => {
+    fetch(`${API_URL}/students?limit=500`)
+      .then(async (res) => {
+        if (!res.ok) return;
+        const data = await res.json() as Array<{ studentId: string; fullName: string; yearLevel: string; program: string; sex: string }> | { students?: Array<{ studentId: string; fullName: string; yearLevel: string; program: string; sex: string }> };
+        // API returns flat array or wrapped object
+        const list = Array.isArray(data) ? data : (data as { students?: typeof data }).students;
+        if (Array.isArray(list)) {
+          setCertifiedStudents(
+            list.map((s) => ({
+              studentId: s.studentId,
+              fullName: s.fullName,
+              yearLevel: s.yearLevel ?? '',
+              program: s.program ?? '',
+              sex: s.sex ?? '',
+            })),
+          );
+        }
+      })
+      .catch(() => {
+        // Silently ignore – offline or server not reachable
+      });
+  }, []);
+
   const persist = useCallback(async (next: StoredState) => {
     setState(next);
     await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(next));
   }, []);
 
+  /**
+   * Lookup a student from the live certified list via API.
+   * Calls the dedicated /auth/student/lookup endpoint (read-only, no side effects).
+   * Falls back to locally cached certifiedStudents when offline.
+   */
+  const lookupStudent = useCallback(async (studentId: string, fullName: string) => {
+    const normalizedId = studentId.trim().toUpperCase();
+    try {
+      const res = await fetch(`${API_URL}/auth/student/lookup`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ studentId: normalizedId, fullName: fullName.trim() }),
+      });
+      const data = await res.json() as { error?: string; student?: CertifiedStudent };
+      if (!res.ok) return { ok: false, error: data.error ?? 'Validation failed.' };
+      if (data.student) return { ok: true, student: data.student as CertifiedStudent };
+    } catch {
+      // Server unreachable – fall through to offline cache
+    }
+
+    // Offline fallback – check cached certified students
+    const found = certifiedStudents.find(
+      (s) => s.studentId.toUpperCase() === normalizedId,
+    );
+    if (!found) return { ok: false, error: 'Student ID is not included in the certified student list. (Offline mode – check your connection)' };
+    if (found.fullName.toLowerCase().trim() !== fullName.toLowerCase().trim()) {
+      return { ok: false, error: `Full name does not match. Expected "${found.fullName}".` };
+    }
+    return { ok: true, student: found };
+  }, [certifiedStudents]);
+
+  /**
+   * Register via API then cache locally.
+   */
   const register = useCallback(async (student: CertifiedStudent, password: string) => {
     const normalizedId = student.studentId.trim().toUpperCase();
+
+    // Check local duplicate first
     if (state.accounts.some((item) => item.studentId === normalizedId)) {
       return { ok: false, error: 'This Student ID is already registered.' };
     }
+
+    try {
+      const res = await fetch(`${API_URL}/auth/student/register`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          studentId: student.studentId,
+          fullName: student.fullName,
+          password,
+        }),
+      });
+      const data = await res.json() as { error?: string };
+      if (!res.ok) return { ok: false, error: data.error ?? 'Registration failed.' };
+    } catch {
+      // If API unreachable allow offline registration
+    }
+
     const account: Account = {
       ...student,
       studentId: normalizedId,
@@ -105,10 +171,63 @@ export function AttendanceProvider({ children }: { children: ReactNode }) {
     };
     await persist({ accounts: [...state.accounts, account], activeStudentId: account.studentId });
     return { ok: true };
-  }, [persist, state.accounts]);
+  }, [persist, state.accounts, certifiedStudents]);
 
+  /**
+   * Login – first validates via API, then falls back to local cache.
+   */
   const login = useCallback(async (studentId: string, password: string) => {
-    const account = state.accounts.find((item) => item.studentId === studentId.trim().toUpperCase());
+    const normalizedId = studentId.trim().toUpperCase();
+
+    // Try API login first
+    try {
+      const res = await fetch(`${API_URL}/auth/student/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ studentId: normalizedId, password }),
+      });
+      const data = await res.json() as { error?: string; student?: { studentId: string; fullName: string; yearLevel: string; program: string; sex: string; profilePhoto?: string; profileUploadCount?: number } };
+
+      if (!res.ok) return { ok: false, error: data.error ?? 'Invalid credentials.' };
+
+      // Sync/update local account from API response
+      if (data.student) {
+        const existingIdx = state.accounts.findIndex((a) => a.studentId === normalizedId);
+        const updated: Account = existingIdx >= 0
+          ? {
+              ...state.accounts[existingIdx],
+              fullName: data.student.fullName,
+              yearLevel: data.student.yearLevel ?? '',
+              program: data.student.program ?? '',
+              sex: data.student.sex ?? '',
+              photoUri: data.student.profilePhoto ?? state.accounts[existingIdx].photoUri,
+              password,
+            }
+          : {
+              studentId: normalizedId,
+              fullName: data.student.fullName,
+              yearLevel: data.student.yearLevel ?? '',
+              program: data.student.program ?? '',
+              sex: data.student.sex ?? '',
+              password,
+              photoChanges: data.student.profileUploadCount ?? 0,
+              notifications: true,
+              createdAt: new Date().toISOString(),
+            };
+
+        const accounts = existingIdx >= 0
+          ? state.accounts.map((a) => a.studentId === normalizedId ? updated : a)
+          : [...state.accounts, updated];
+
+        await persist({ accounts, activeStudentId: normalizedId });
+        return { ok: true };
+      }
+    } catch {
+      // Fall through to local
+    }
+
+    // Offline fallback: local account
+    const account = state.accounts.find((item) => item.studentId === normalizedId);
     if (!account || account.password !== password) {
       return { ok: false, error: 'Student ID or password is incorrect.' };
     }
@@ -140,8 +259,8 @@ export function AttendanceProvider({ children }: { children: ReactNode }) {
 
   const account = state.accounts.find((item) => item.studentId === state.activeStudentId) ?? null;
   const value = useMemo(() => ({
-    account, isReady, sessions: ATTENDANCE_SESSIONS, register, login, logout, updatePhoto, setNotifications,
-  }), [account, isReady, register, login, logout, updatePhoto, setNotifications]);
+    account, isReady, sessions: ATTENDANCE_SESSIONS, certifiedStudents, register, login, logout, updatePhoto, setNotifications, lookupStudent,
+  }), [account, isReady, certifiedStudents, register, login, logout, updatePhoto, setNotifications, lookupStudent]);
 
   return <AttendanceContext.Provider value={value}>{children}</AttendanceContext.Provider>;
 }

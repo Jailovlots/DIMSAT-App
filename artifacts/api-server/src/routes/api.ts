@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { asc, count, desc, eq, ilike, or, sql, and } from "drizzle-orm";
+import { asc, count, desc, eq, ilike, or, sql, and, ne } from "drizzle-orm";
 import {
   certifiedStudentsTable,
   studentImportBatchesTable,
@@ -10,6 +10,8 @@ import {
   officersTable,
   systemSettingsTable,
   auditLogsTable,
+  attendanceQrCodesTable,
+  qrAssignmentsTable,
 } from "@workspace/db";
 import { db } from "@workspace/db";
 import crypto from "node:crypto";
@@ -17,14 +19,167 @@ import * as XLSX from "xlsx";
 
 const router = Router();
 
-// Auto-ensure required schema columns exist in physical database
+// Auto-ensure required schema columns and tables exist in physical database
 (async () => {
   try {
     await db.execute(sql`ALTER TABLE system_settings ADD COLUMN IF NOT EXISTS late_threshold_minutes INTEGER NOT NULL DEFAULT 15;`);
-  } catch {
-    // ignore
+    await db.execute(sql`ALTER TABLE officers ADD COLUMN IF NOT EXISTS role TEXT NOT NULL DEFAULT 'officer';`);
+    await db.execute(sql`ALTER TABLE officers ADD COLUMN IF NOT EXISTS password_hash TEXT;`);
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS attendance_qr_codes (
+        id SERIAL PRIMARY KEY,
+        qr_name TEXT NOT NULL,
+        secure_token TEXT NOT NULL UNIQUE,
+        status TEXT NOT NULL DEFAULT 'active',
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      );
+    `);
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS qr_assignments (
+        id SERIAL PRIMARY KEY,
+        qr_code_id INTEGER NOT NULL,
+        event_id INTEGER NOT NULL,
+        session_id INTEGER,
+        activated_by INTEGER,
+        activated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        deactivated_at TIMESTAMPTZ,
+        status TEXT NOT NULL DEFAULT 'active'
+      );
+    `);
+
+    // Ensure default Permanent Attendance QR Code exists
+    const existing = await db
+      .select()
+      .from(attendanceQrCodesTable)
+      .where(eq(attendanceQrCodesTable.secureToken, "ZDSPGC_PERMANENT_QR_01"))
+      .limit(1);
+
+    if (!existing[0]) {
+      await db.insert(attendanceQrCodesTable).values({
+        qrName: "Attendance QR #01",
+        secureToken: "ZDSPGC_PERMANENT_QR_01",
+        status: "active",
+      });
+    }
+
+    // Seed default Officers matching the screenshot if table is empty
+    const existingOfficers = await db.select().from(officersTable).limit(1);
+    if (!existingOfficers[0]) {
+      await db.insert(officersTable).values([
+        { officerId: "OFF-001", fullName: "System Admin", email: "admin@zdspgc.edu.ph", role: "super_admin", passwordHash: "admin123", status: "active" },
+        { officerId: "OFF-002", fullName: "Suerte, Carlyn", email: "suerte@gmail.com", role: "officer", passwordHash: "officer123", status: "active" },
+        { officerId: "OFF-003", fullName: "Batlag, Suhaine", email: "batlag@gmail.com", role: "officer", passwordHash: "officer123", status: "active" },
+        { officerId: "OFF-004", fullName: "Cabilao, Romy", email: "cabilao@gmail.com", role: "officer", passwordHash: "officer123", status: "active" },
+        { officerId: "OFF-005", fullName: "Madrid, Barbie", email: "madrid@gmail.com", role: "officer", passwordHash: "officer123", status: "active" },
+      ]);
+    }
+  } catch (err) {
+    console.error("Startup migration check error:", err);
   }
 })();
+
+// ─── UTILITY HELPERS ─────────────────────────────────────────────────────────
+
+function parseMinutes(timeStr: string): number {
+  if (!timeStr) return 0;
+  const [h, m] = timeStr.split(":").map(Number);
+  return (h || 0) * 60 + (m || 0);
+}
+
+function resolveCurrentSession(sessions: (typeof attendanceSessionsTable.$inferSelect)[]) {
+  if (!sessions || !sessions.length) return null;
+
+  // 1. If any session is manually marked active, use that
+  const manuallyActive = sessions.find((s) => s.active);
+  if (manuallyActive) return manuallyActive;
+
+  const enabledSessions = sessions.filter((s) => s.enabled);
+  if (!enabledSessions.length) return sessions[0];
+
+  const now = new Date();
+  const currentMinutes = now.getHours() * 60 + now.getMinutes();
+
+  // 2. Exact time window match with 30-minute grace period after endTime
+  const timeMatch = enabledSessions.find((s) => {
+    const startMins = parseMinutes(s.startTime);
+    const endMins = parseMinutes(s.endTime);
+    if (endMins >= startMins) {
+      return currentMinutes >= startMins && currentMinutes <= endMins + 30;
+    }
+    return currentMinutes >= startMins || currentMinutes <= endMins;
+  });
+
+  if (timeMatch) return timeMatch;
+
+  // 3. Proximity match: pick session whose start/end window is closest to current time
+  let closest = enabledSessions[0];
+  let minDiff = Infinity;
+
+  for (const s of enabledSessions) {
+    const startMins = parseMinutes(s.startTime);
+    const endMins = parseMinutes(s.endTime);
+    const midPoint = (startMins + endMins) / 2;
+    const diff = Math.abs(currentMinutes - midPoint);
+    if (diff < minDiff) {
+      minDiff = diff;
+      closest = s;
+    }
+  }
+
+  return closest;
+}
+
+// ─── AUTH / STUDENT LOOKUP (dry-run validation, no side effects) ──────────────
+router.post("/auth/student/lookup", async (req, res, next) => {
+  try {
+    const { studentId, fullName } = req.body as { studentId?: string; fullName?: string };
+
+    if (!studentId || !studentId.trim()) {
+      res.status(400).json({ error: "Student ID is required." });
+      return;
+    }
+
+    const cleanStudentId = studentId.trim();
+    const cleanFullName = (fullName || "").trim();
+
+    const certifiedList = await db
+      .select()
+      .from(certifiedStudentsTable)
+      .where(ilike(certifiedStudentsTable.studentId, cleanStudentId))
+      .limit(1);
+
+    const student = certifiedList[0];
+    if (!student) {
+      res.status(400).json({ error: "Student ID is not included in the certified student list." });
+      return;
+    }
+
+    if (student.isRegistered || student.passwordHash) {
+      res.status(400).json({ error: "This Student ID is already registered." });
+      return;
+    }
+
+    if (cleanFullName && student.fullName.toLowerCase().trim() !== cleanFullName.toLowerCase()) {
+      res.status(400).json({
+        error: `Name mismatch. Certified record for ${student.studentId} is "${student.fullName}".`,
+      });
+      return;
+    }
+
+    res.json({
+      student: {
+        studentId: student.studentId,
+        fullName: student.fullName,
+        yearLevel: student.yearLevel,
+        program: student.program,
+        sex: student.sex,
+      },
+    });
+  } catch (err) {
+    next(err);
+  }
+});
 
 // ─── AUTH / STUDENT REGISTRATION ──────────────────────────────────────────────
 router.post("/auth/student/register", async (req, res, next) => {
@@ -830,14 +985,225 @@ router.post("/events/:eventId/qr", async (req, res, next) => {
       .set({ qrStatus: "generated", status: "active" })
       .where(eq(eventsTable.id, eventId));
 
+    // Also automatically assign/activate default Permanent QR Code #01 to this event
+    const permQrs = await db.select().from(attendanceQrCodesTable).limit(1);
+    if (permQrs[0]) {
+      // Deactivate older active assignments for this QR code
+      await db
+        .update(qrAssignmentsTable)
+        .set({ status: "inactive", deactivatedAt: new Date() })
+        .where(eq(qrAssignmentsTable.qrCodeId, permQrs[0].id));
+
+      await db.insert(qrAssignmentsTable).values({
+        qrCodeId: permQrs[0].id,
+        eventId,
+        status: "active",
+      });
+    }
+
     await db.insert(auditLogsTable).values({
       action: "GENERATE_EVENT_QR",
       entityType: "event",
       entityId: String(eventId),
-      details: `Generated single Event QR token for event #${eventId}`,
+      details: `Activated Permanent QR Code for event #${eventId}`,
     });
 
-    res.json({ eventId: qr.eventId, token: qr.token, status: qr.status });
+    res.json({ eventId: qr.eventId, token: qr.token, status: qr.status, permanentToken: permQrs[0]?.secureToken || qr.token });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ─── PERMANENT ATTENDANCE QR CODES ─────────────────────────────────────────────
+
+router.get("/qr-codes", async (_req, res, next) => {
+  try {
+    const qrCodes = await db.select().from(attendanceQrCodesTable).orderBy(asc(attendanceQrCodesTable.id));
+
+    const result = await Promise.all(
+      qrCodes.map(async (qr) => {
+        const activeAssignment = await db
+          .select()
+          .from(qrAssignmentsTable)
+          .where(and(eq(qrAssignmentsTable.qrCodeId, qr.id), eq(qrAssignmentsTable.status, "active")))
+          .orderBy(desc(qrAssignmentsTable.activatedAt))
+          .limit(1);
+
+        let event = null;
+        let session = null;
+
+        if (activeAssignment[0]) {
+          const evRows = await db
+            .select()
+            .from(eventsTable)
+            .where(eq(eventsTable.id, activeAssignment[0].eventId))
+            .limit(1);
+          event = evRows[0] || null;
+
+          if (activeAssignment[0].sessionId) {
+            const sessRows = await db
+              .select()
+              .from(attendanceSessionsTable)
+              .where(eq(attendanceSessionsTable.id, activeAssignment[0].sessionId))
+              .limit(1);
+            session = sessRows[0] || null;
+          }
+        }
+
+        return {
+          id: qr.id,
+          qrName: qr.qrName,
+          secureToken: qr.secureToken,
+          status: qr.status,
+          createdAt: qr.createdAt,
+          activeAssignment: activeAssignment[0]
+            ? {
+                id: activeAssignment[0].id,
+                eventId: activeAssignment[0].eventId,
+                eventName: event?.name || "Unknown Event",
+                sessionId: activeAssignment[0].sessionId,
+                sessionName: session?.name || "Auto (By Schedule)",
+                activatedAt: activeAssignment[0].activatedAt,
+              }
+            : null,
+        };
+      })
+    );
+
+    res.json(result);
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.get("/qr-codes/active", async (_req, res, next) => {
+  try {
+    const activeAssignment = await db
+      .select()
+      .from(qrAssignmentsTable)
+      .innerJoin(attendanceQrCodesTable, eq(attendanceQrCodesTable.id, qrAssignmentsTable.qrCodeId))
+      .innerJoin(eventsTable, eq(eventsTable.id, qrAssignmentsTable.eventId))
+      .where(and(eq(qrAssignmentsTable.status, "active"), eq(eventsTable.status, "active")))
+      .orderBy(desc(qrAssignmentsTable.activatedAt))
+      .limit(1);
+
+    if (!activeAssignment[0]) {
+      // Return default permanent QR code info if available
+      const defaultQr = await db.select().from(attendanceQrCodesTable).limit(1);
+      res.json({
+        qrName: defaultQr[0]?.qrName || "Attendance QR #01",
+        secureToken: defaultQr[0]?.secureToken || "ZDSPGC_PERMANENT_QR_01",
+        event: null,
+        session: null,
+      });
+      return;
+    }
+
+    const { qr_assignments, attendance_qr_codes, attendance_events } = activeAssignment[0];
+
+    let session = null;
+    if (qr_assignments.sessionId) {
+      const sessRows = await db
+        .select()
+        .from(attendanceSessionsTable)
+        .where(eq(attendanceSessionsTable.id, qr_assignments.sessionId))
+        .limit(1);
+      session = sessRows[0] || null;
+    }
+
+    res.json({
+      qrName: attendance_qr_codes.qrName,
+      secureToken: attendance_qr_codes.secureToken,
+      event: {
+        id: attendance_events.id,
+        name: attendance_events.name,
+        date: attendance_events.eventDate,
+        venue: attendance_events.venue,
+      },
+      session: session ? { id: session.id, name: session.name } : null,
+      activatedAt: qr_assignments.activatedAt,
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.post("/qr-codes", async (req, res, next) => {
+  try {
+    const { qrName } = req.body as { qrName?: string };
+    const name = (qrName || "").trim() || `Attendance QR #${Date.now().toString().slice(-2)}`;
+    const secureToken = `ZDSPGC_PERMANENT_QR_${crypto.randomBytes(4).toString("hex").toUpperCase()}`;
+
+    const [created] = await db
+      .insert(attendanceQrCodesTable)
+      .values({
+        qrName: name,
+        secureToken,
+        status: "active",
+      })
+      .returning();
+
+    res.status(201).json(created);
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.post("/qr-codes/:id/activate", async (req, res, next) => {
+  try {
+    const qrCodeId = Number(req.params["id"]);
+    const { eventId, sessionId } = req.body as { eventId?: number; sessionId?: number };
+
+    if (!eventId) {
+      res.status(400).json({ error: "eventId is required to activate QR code." });
+      return;
+    }
+
+    // Deactivate previous active assignments for this QR code
+    await db
+      .update(qrAssignmentsTable)
+      .set({ status: "inactive", deactivatedAt: new Date() })
+      .where(eq(qrAssignmentsTable.qrCodeId, qrCodeId));
+
+    const [assignment] = await db
+      .insert(qrAssignmentsTable)
+      .values({
+        qrCodeId,
+        eventId,
+        sessionId: sessionId || null,
+        status: "active",
+      })
+      .returning();
+
+    // Mark event as active
+    await db
+      .update(eventsTable)
+      .set({ status: "active", qrStatus: "generated" })
+      .where(eq(eventsTable.id, eventId));
+
+    await db.insert(auditLogsTable).values({
+      action: "ACTIVATE_PERMANENT_QR",
+      entityType: "qr_assignment",
+      entityId: String(assignment.id),
+      details: `Assigned Permanent QR #${qrCodeId} to event #${eventId}${sessionId ? ` (session #${sessionId})` : ""}`,
+    });
+
+    res.json({ message: "Permanent QR code assigned & activated successfully", assignment });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.post("/qr-codes/:id/deactivate", async (req, res, next) => {
+  try {
+    const qrCodeId = Number(req.params["id"]);
+
+    await db
+      .update(qrAssignmentsTable)
+      .set({ status: "inactive", deactivatedAt: new Date() })
+      .where(and(eq(qrAssignmentsTable.qrCodeId, qrCodeId), eq(qrAssignmentsTable.status, "active")));
+
+    res.json({ message: "Permanent QR code assignment deactivated." });
   } catch (err) {
     next(err);
   }
@@ -940,38 +1306,106 @@ router.post("/attendance/scan", async (req, res, next) => {
       return;
     }
 
-    // 1. Resolve token -> Event (try exact match first, then fall back to any active token)
+    // 1. Resolve token -> Active Event (Support permanent CSC QR code & fallback to active event)
     let eventId: number | null = null;
+    let assignedSessionId: number | null = null;
 
     if (cleanToken) {
-      const tokenRows = await db
+      // Check Permanent QR codes first
+      const permQrRows = await db
         .select()
-        .from(eventQrTokensTable)
-        .where(eq(eventQrTokensTable.token, cleanToken))
+        .from(attendanceQrCodesTable)
+        .where(eq(attendanceQrCodesTable.secureToken, cleanToken))
         .limit(1);
 
-      if (tokenRows[0]) {
-        eventId = tokenRows[0].eventId;
+      if (permQrRows[0]) {
+        const activeAssign = await db
+          .select()
+          .from(qrAssignmentsTable)
+          .where(and(eq(qrAssignmentsTable.qrCodeId, permQrRows[0].id), eq(qrAssignmentsTable.status, "active")))
+          .orderBy(desc(qrAssignmentsTable.activatedAt))
+          .limit(1);
+
+        if (activeAssign[0]) {
+          const assignedEv = await db
+            .select()
+            .from(eventsTable)
+            .where(and(eq(eventsTable.id, activeAssign[0].eventId), eq(eventsTable.status, "active")))
+            .limit(1);
+
+          if (assignedEv[0]) {
+            eventId = activeAssign[0].eventId;
+            assignedSessionId = activeAssign[0].sessionId;
+          }
+        }
+      }
+
+      // Check eventQrTokensTable for active event match
+      if (!eventId) {
+        const tokenRows = await db
+          .select()
+          .from(eventQrTokensTable)
+          .where(eq(eventQrTokensTable.token, cleanToken))
+          .limit(1);
+
+        if (tokenRows[0]) {
+          const tokenEv = await db
+            .select()
+            .from(eventsTable)
+            .where(and(eq(eventsTable.id, tokenRows[0].eventId), eq(eventsTable.status, "active")))
+            .limit(1);
+
+          if (tokenEv[0]) {
+            eventId = tokenRows[0].eventId;
+          }
+        }
       }
     }
 
-    // Fallback: find the most recent active event token (for plain student ID scans or stale tokens)
+    // Fallback: Use active assignment of any permanent QR code or latest active event
     if (!eventId) {
-      const activeTokenRows = await db
+      const activeAssignRows = await db
         .select()
-        .from(eventQrTokensTable)
-        .innerJoin(eventsTable, eq(eventsTable.id, eventQrTokensTable.eventId))
-        .where(and(eq(eventQrTokensTable.status, "active"), eq(eventsTable.status, "active")))
+        .from(qrAssignmentsTable)
+        .innerJoin(eventsTable, eq(eventsTable.id, qrAssignmentsTable.eventId))
+        .where(and(eq(qrAssignmentsTable.status, "active"), eq(eventsTable.status, "active")))
+        .orderBy(desc(qrAssignmentsTable.activatedAt))
+        .limit(1);
+
+      if (activeAssignRows[0]) {
+        eventId = activeAssignRows[0].qr_assignments.eventId;
+        assignedSessionId = activeAssignRows[0].qr_assignments.sessionId;
+      }
+    }
+
+    if (!eventId) {
+      const activeEv = await db
+        .select()
+        .from(eventsTable)
+        .where(eq(eventsTable.status, "active"))
         .orderBy(desc(eventsTable.createdAt))
         .limit(1);
 
-      if (activeTokenRows[0]) {
-        eventId = activeTokenRows[0].event_qr_tokens.eventId;
+      if (activeEv[0]) {
+        eventId = activeEv[0].id;
       }
     }
 
     if (!eventId) {
-      res.status(404).json({ error: "No active event found. Please generate an Event QR code first." });
+      const latestEv = await db
+        .select()
+        .from(eventsTable)
+        .where(ne(eventsTable.status, "cancelled"))
+        .orderBy(desc(eventsTable.createdAt))
+        .limit(1);
+
+      if (latestEv[0]) {
+        eventId = latestEv[0].id;
+      }
+    }
+
+    if (!eventId) {
+      res.status(404).json({ error: "No active event found. Please create or start an event in the Admin Console." });
       return;
     }
 
@@ -991,59 +1425,10 @@ router.post("/attendance/scan", async (req, res, next) => {
     // 3. Resolve Event
     const eventRows = await db.select().from(eventsTable).where(eq(eventsTable.id, eventId)).limit(1);
     const event = eventRows[0];
-    if (!event || event.status === "cancelled" || event.status === "inactive") {
-      res.status(400).json({ error: `Event "${event?.name || 'Selected Event'}" is currently inactive or completed.` });
+    if (!event || event.status === "cancelled") {
+      res.status(400).json({ error: `Event "${event?.name || 'Selected Event'}" is cancelled.` });
       return;
     }
-
-function parseMinutes(timeStr: string): number {
-  if (!timeStr) return 0;
-  const [h, m] = timeStr.split(":").map(Number);
-  return (h || 0) * 60 + (m || 0);
-}
-
-function resolveCurrentSession(sessions: (typeof attendanceSessionsTable.$inferSelect)[]) {
-  if (!sessions || !sessions.length) return null;
-
-  // 1. If any session is manually marked active, use that
-  const manuallyActive = sessions.find((s) => s.active);
-  if (manuallyActive) return manuallyActive;
-
-  const enabledSessions = sessions.filter((s) => s.enabled);
-  if (!enabledSessions.length) return sessions[0];
-
-  const now = new Date();
-  const currentMinutes = now.getHours() * 60 + now.getMinutes();
-
-  // 2. Exact time window match with 30-minute grace period after endTime
-  const timeMatch = enabledSessions.find((s) => {
-    const startMins = parseMinutes(s.startTime);
-    const endMins = parseMinutes(s.endTime);
-    if (endMins >= startMins) {
-      return currentMinutes >= startMins && currentMinutes <= endMins + 30;
-    }
-    return currentMinutes >= startMins || currentMinutes <= endMins;
-  });
-
-  if (timeMatch) return timeMatch;
-
-  // 3. Proximity match: pick session whose start/end window is closest to current time
-  let closest = enabledSessions[0];
-  let minDiff = Infinity;
-
-  for (const s of enabledSessions) {
-    const startMins = parseMinutes(s.startTime);
-    const endMins = parseMinutes(s.endTime);
-    const midPoint = (startMins + endMins) / 2;
-    const diff = Math.abs(currentMinutes - midPoint);
-    if (diff < minDiff) {
-      minDiff = diff;
-      closest = s;
-    }
-  }
-
-  return closest;
-}
 
     // 4. Resolve Active Attendance Session
     const settingsRows = await db.select().from(systemSettingsTable).limit(1);
@@ -1051,26 +1436,22 @@ function resolveCurrentSession(sessions: (typeof attendanceSessionsTable.$inferS
 
     let activeSession = null;
 
-    if (isManualMode) {
-      const activeRows = await db
-        .select()
-        .from(attendanceSessionsTable)
-        .where(
-          and(
-            eq(attendanceSessionsTable.eventId, eventId),
-            eq(attendanceSessionsTable.active, true),
-          ),
-        )
-        .limit(1);
-      activeSession = activeRows[0];
-    } else {
-      // Automatic time-based mode: dynamically resolve session matching current time of day
-      const sessions = await db
-        .select()
-        .from(attendanceSessionsTable)
-        .where(eq(attendanceSessionsTable.eventId, eventId));
+    const sessions = await db
+      .select()
+      .from(attendanceSessionsTable)
+      .where(eq(attendanceSessionsTable.eventId, eventId));
 
-      activeSession = resolveCurrentSession(sessions);
+    if (assignedSessionId) {
+      activeSession = sessions.find((s) => s.id === assignedSessionId) || null;
+    }
+
+    if (!activeSession) {
+      if (isManualMode) {
+        activeSession = sessions.find((s) => s.active) || null;
+      } else {
+        // Automatic time-based mode: dynamically resolve session matching current time of day
+        activeSession = resolveCurrentSession(sessions);
+      }
     }
 
     if (!activeSession) {
@@ -1138,35 +1519,106 @@ router.post("/attendance/confirm", async (req, res, next) => {
       return;
     }
 
-    // Resolve event token with active event fallback
+    // 1. Resolve token -> Active Event (Support permanent CSC QR code & fallback to active event)
     let eventId: number | null = null;
+    let assignedSessionId: number | null = null;
+
     if (cleanToken) {
-      const tokenRows = await db
+      // Check Permanent QR codes first
+      const permQrRows = await db
         .select()
-        .from(eventQrTokensTable)
-        .where(eq(eventQrTokensTable.token, cleanToken))
+        .from(attendanceQrCodesTable)
+        .where(eq(attendanceQrCodesTable.secureToken, cleanToken))
         .limit(1);
-      if (tokenRows[0]) {
-        eventId = tokenRows[0].eventId;
+
+      if (permQrRows[0]) {
+        const activeAssign = await db
+          .select()
+          .from(qrAssignmentsTable)
+          .where(and(eq(qrAssignmentsTable.qrCodeId, permQrRows[0].id), eq(qrAssignmentsTable.status, "active")))
+          .orderBy(desc(qrAssignmentsTable.activatedAt))
+          .limit(1);
+
+        if (activeAssign[0]) {
+          const assignedEv = await db
+            .select()
+            .from(eventsTable)
+            .where(and(eq(eventsTable.id, activeAssign[0].eventId), eq(eventsTable.status, "active")))
+            .limit(1);
+
+          if (assignedEv[0]) {
+            eventId = activeAssign[0].eventId;
+            assignedSessionId = activeAssign[0].sessionId;
+          }
+        }
+      }
+
+      // Check eventQrTokensTable for active event match
+      if (!eventId) {
+        const tokenRows = await db
+          .select()
+          .from(eventQrTokensTable)
+          .where(eq(eventQrTokensTable.token, cleanToken))
+          .limit(1);
+
+        if (tokenRows[0]) {
+          const tokenEv = await db
+            .select()
+            .from(eventsTable)
+            .where(and(eq(eventsTable.id, tokenRows[0].eventId), eq(eventsTable.status, "active")))
+            .limit(1);
+
+          if (tokenEv[0]) {
+            eventId = tokenRows[0].eventId;
+          }
+        }
+      }
+    }
+
+    // Fallback: Use active assignment of any permanent QR code or latest active event
+    if (!eventId) {
+      const activeAssignRows = await db
+        .select()
+        .from(qrAssignmentsTable)
+        .innerJoin(eventsTable, eq(eventsTable.id, qrAssignmentsTable.eventId))
+        .where(and(eq(qrAssignmentsTable.status, "active"), eq(eventsTable.status, "active")))
+        .orderBy(desc(qrAssignmentsTable.activatedAt))
+        .limit(1);
+
+      if (activeAssignRows[0]) {
+        eventId = activeAssignRows[0].qr_assignments.eventId;
+        assignedSessionId = activeAssignRows[0].qr_assignments.sessionId;
       }
     }
 
     if (!eventId) {
-      const activeTokenRows = await db
+      const activeEv = await db
         .select()
-        .from(eventQrTokensTable)
-        .innerJoin(eventsTable, eq(eventsTable.id, eventQrTokensTable.eventId))
-        .where(and(eq(eventQrTokensTable.status, "active"), eq(eventsTable.status, "active")))
+        .from(eventsTable)
+        .where(eq(eventsTable.status, "active"))
         .orderBy(desc(eventsTable.createdAt))
         .limit(1);
 
-      if (activeTokenRows[0]) {
-        eventId = activeTokenRows[0].event_qr_tokens.eventId;
+      if (activeEv[0]) {
+        eventId = activeEv[0].id;
       }
     }
 
     if (!eventId) {
-      res.status(404).json({ error: "No active event found. Please generate an Event QR code first." });
+      const latestEv = await db
+        .select()
+        .from(eventsTable)
+        .where(ne(eventsTable.status, "cancelled"))
+        .orderBy(desc(eventsTable.createdAt))
+        .limit(1);
+
+      if (latestEv[0]) {
+        eventId = latestEv[0].id;
+      }
+    }
+
+    if (!eventId) {
+      res.status(404).json({ error: "No active event found. Please create or start an event in the Admin Console." });
       return;
     }
 
@@ -1297,7 +1749,9 @@ router.get("/officers", async (_req, res, next) => {
         officerId: o.officerId,
         fullName: o.fullName,
         email: o.email,
+        role: o.role || "officer",
         status: o.status,
+        createdAt: o.createdAt,
       })),
     );
   } catch (err) {
@@ -1307,22 +1761,33 @@ router.get("/officers", async (_req, res, next) => {
 
 router.post("/officers", async (req, res, next) => {
   try {
-    const { officerId, fullName, email } = req.body as {
-      officerId: string;
+    const { officerId, fullName, email, role, password } = req.body as {
+      officerId?: string;
       fullName: string;
       email: string;
+      role?: string;
+      password?: string;
     };
+
+    const autoId = officerId || `OFF-${Date.now().toString().slice(-4)}`;
 
     const [officer] = await db
       .insert(officersTable)
-      .values({ officerId, fullName, email, status: "active" })
+      .values({
+        officerId: autoId,
+        fullName,
+        email,
+        role: role || "officer",
+        passwordHash: password || "officer123",
+        status: "active",
+      })
       .returning();
 
     await db.insert(auditLogsTable).values({
       action: "ADD_OFFICER",
       entityType: "officer",
       entityId: String(officer.id),
-      details: `Added officer: ${officer.fullName} (${officer.officerId})`,
+      details: `Added officer: ${officer.fullName} (${officer.officerId}) with role ${officer.role}`,
     });
 
     res.status(201).json({
@@ -1330,7 +1795,132 @@ router.post("/officers", async (req, res, next) => {
       officerId: officer.officerId,
       fullName: officer.fullName,
       email: officer.email,
+      role: officer.role,
       status: officer.status,
+      createdAt: officer.createdAt,
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.put("/officers/:id", async (req, res, next) => {
+  try {
+    const id = Number(req.params["id"]);
+    const { fullName, email, role, password } = req.body as {
+      fullName?: string;
+      email?: string;
+      role?: string;
+      password?: string;
+    };
+
+    const updateData: Record<string, unknown> = {};
+    if (fullName) updateData["fullName"] = fullName;
+    if (email) updateData["email"] = email;
+    if (role) updateData["role"] = role;
+    if (password) updateData["passwordHash"] = password;
+
+    const [updated] = await db
+      .update(officersTable)
+      .set(updateData)
+      .where(eq(officersTable.id, id))
+      .returning();
+
+    if (!updated) {
+      res.status(404).json({ error: "Officer not found" });
+      return;
+    }
+
+    await db.insert(auditLogsTable).values({
+      action: "EDIT_OFFICER",
+      entityType: "officer",
+      entityId: String(updated.id),
+      details: `Updated officer: ${updated.fullName} (${updated.email})`,
+    });
+
+    res.json({
+      id: updated.id,
+      officerId: updated.officerId,
+      fullName: updated.fullName,
+      email: updated.email,
+      role: updated.role,
+      status: updated.status,
+      createdAt: updated.createdAt,
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.delete("/officers/:id", async (req, res, next) => {
+  try {
+    const id = Number(req.params["id"]);
+    await db.delete(officersTable).where(eq(officersTable.id, id));
+
+    await db.insert(auditLogsTable).values({
+      action: "DELETE_OFFICER",
+      entityType: "officer",
+      entityId: String(id),
+      details: `Deleted officer ID ${id}`,
+    });
+
+    res.json({ message: "Officer deleted successfully" });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Staff Authentication Endpoint (Login for Officers and Admins)
+router.post("/auth/staff/login", async (req, res, next) => {
+  try {
+    const { email, password } = req.body as { email?: string; password?: string };
+
+    if (!email || !password) {
+      res.status(400).json({ error: "Email and password are required." });
+      return;
+    }
+
+    const cleanEmail = email.trim().toLowerCase();
+
+    // Default System Admin login check
+    if ((cleanEmail === "admin@attenda.edu" || cleanEmail === "admin@zdspgc.edu.ph") && password === "admin123") {
+      res.json({
+        user: {
+          id: 0,
+          fullName: "System Admin",
+          email: cleanEmail,
+          role: "super_admin",
+        },
+      });
+      return;
+    }
+
+    // Database lookup for Officer or Admin
+    const rows = await db
+      .select()
+      .from(officersTable)
+      .where(ilike(officersTable.email, cleanEmail))
+      .limit(1);
+
+    const officer = rows[0];
+    if (!officer) {
+      res.status(401).json({ error: "Invalid work email or password." });
+      return;
+    }
+
+    if (officer.passwordHash && officer.passwordHash !== password) {
+      res.status(401).json({ error: "Invalid password." });
+      return;
+    }
+
+    res.json({
+      user: {
+        id: officer.id,
+        officerId: officer.officerId,
+        fullName: officer.fullName,
+        email: officer.email,
+        role: officer.role || "officer",
+      },
     });
   } catch (err) {
     next(err);

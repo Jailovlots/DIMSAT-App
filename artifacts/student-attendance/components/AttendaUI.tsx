@@ -1,5 +1,5 @@
 import { Feather, Ionicons } from '@expo/vector-icons';
-import React, { ReactNode } from 'react';
+import React, { ReactNode, useState } from 'react';
 import { ActivityIndicator, Image, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, TextInputProps, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useColors } from '@/hooks/useColors';
@@ -19,7 +19,7 @@ export function BrandMark({ compact = false }: { compact?: boolean }) {
   return (
     <View style={styles.markRow}>
       <Image source={require('@/assets/images/attenda-icon.png')} style={[styles.mark, compact && styles.markCompact]} />
-      {!compact && <View><Text style={[styles.brand, { color: colors.primary }]}>attenda</Text><Text style={[styles.brandSub, { color: colors.mutedForeground }]}>campus attendance</Text></View>}
+      {!compact && <View><Text style={[styles.brand, { color: colors.primary }]}>DIMSAT</Text><Text style={[styles.brandSub, { color: colors.mutedForeground }]}>campus attendance</Text></View>}
     </View>
   );
 }
@@ -69,9 +69,29 @@ export function SecondaryButton({ label, onPress, icon, disabled = false }: { la
   return <Pressable disabled={disabled} onPress={onPress} style={({ pressed }) => [styles.secondaryButton, { borderColor: colors.border, backgroundColor: colors.card, opacity: pressed ? 0.72 : disabled ? 0.45 : 1 }]}>{icon && <Feather name={icon} size={17} color={colors.primary} />}<Text style={[styles.secondaryLabel, { color: colors.primary }]}>{label}</Text></Pressable>;
 }
 
-export function Field({ label, error, ...props }: TextInputProps & { label: string; error?: string }) {
+export function Field({ label, error, secureTextEntry, ...props }: TextInputProps & { label: string; error?: string }) {
   const colors = useColors();
-  return <View style={styles.field}><Text style={[styles.fieldLabel, { color: colors.inkSoft }]}>{label}</Text><TextInput {...props} placeholderTextColor={colors.mutedForeground} style={[styles.input, { color: colors.foreground, backgroundColor: colors.card, borderColor: error ? colors.destructive : colors.input }]} />{error ? <Text style={[styles.fieldError, { color: colors.destructive }]}>{error}</Text> : null}</View>;
+  const [hidden, setHidden] = useState(true);
+  const isPassword = !!secureTextEntry;
+  return (
+    <View style={styles.field}>
+      <Text style={[styles.fieldLabel, { color: colors.inkSoft }]}>{label}</Text>
+      <View style={styles.inputRow}>
+        <TextInput
+          {...props}
+          secureTextEntry={isPassword ? hidden : false}
+          placeholderTextColor={colors.mutedForeground}
+          style={[styles.input, styles.inputFlex, { color: colors.foreground, backgroundColor: colors.card, borderColor: error ? colors.destructive : colors.input }]}
+        />
+        {isPassword && (
+          <Pressable onPress={() => setHidden((h) => !h)} style={[styles.eyeButton, { backgroundColor: colors.card, borderColor: error ? colors.destructive : colors.input }]}>
+            <Feather name={hidden ? 'eye' : 'eye-off'} size={18} color={colors.mutedForeground} />
+          </Pressable>
+        )}
+      </View>
+      {error ? <Text style={[styles.fieldError, { color: colors.destructive }]}>{error}</Text> : null}
+    </View>
+  );
 }
 
 export function StatusPill({ status }: { status: 'Present' | 'Upcoming' | 'Missing' }) {
@@ -111,7 +131,10 @@ const styles = StyleSheet.create({
   secondaryLabel: { fontSize: 15, fontWeight: '700' },
   field: { gap: 7, marginBottom: 15 },
   fieldLabel: { fontSize: 13, fontWeight: '700', letterSpacing: 0.1 },
+  inputRow: { flexDirection: 'row', alignItems: 'center', gap: 0 },
+  inputFlex: { flex: 1, borderTopRightRadius: 0, borderBottomRightRadius: 0, borderRightWidth: 0 },
   input: { height: 53, borderRadius: 15, borderWidth: 1, paddingHorizontal: 16, fontSize: 16 },
+  eyeButton: { height: 53, width: 52, borderTopRightRadius: 15, borderBottomRightRadius: 15, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
   fieldError: { fontSize: 12, lineHeight: 17, marginTop: -2 },
   pill: { flexDirection: 'row', alignItems: 'center', gap: 5, borderRadius: 20, paddingHorizontal: 10, paddingVertical: 6, alignSelf: 'flex-start' },
   pillText: { fontSize: 12, fontWeight: '700' },

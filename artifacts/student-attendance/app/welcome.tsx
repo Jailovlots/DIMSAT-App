@@ -4,7 +4,7 @@ import { router } from 'expo-router';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { KeyboardAwareScrollViewCompat } from '@/components/KeyboardAwareScrollViewCompat';
 import { BrandMark, Field, PrimaryButton, Screen, SecondaryButton } from '@/components/AttendaUI';
-import { CERTIFIED_STUDENTS, useAttendance } from '@/context/AttendanceContext';
+import { useAttendance } from '@/context/AttendanceContext';
 import { useColors } from '@/hooks/useColors';
 
 export default function WelcomeScreen() {
@@ -30,10 +30,10 @@ export default function WelcomeScreen() {
   return <Screen scroll={false} contentStyle={styles.page}>
     <KeyboardAwareScrollViewCompat contentContainerStyle={{ paddingBottom: 38 }} bottomOffset={40}>
       <View style={styles.top}><BrandMark /><View style={[styles.signal, { backgroundColor: colors.secondary }]}><Feather name="shield" size={16} color={colors.success} /><Text style={[styles.signalText, { color: colors.inkSoft }]}>School-issued access</Text></View></View>
-      <View style={styles.hero}><Text style={[styles.kicker, { color: colors.success }]}>YOUR CAMPUS, ACCOUNTED FOR</Text><Text style={[styles.title, { color: colors.primary }]}>A calmer way to know you're here.</Text><Text style={[styles.intro, { color: colors.mutedForeground }]}>Attenda keeps your attendance record close, clear, and ready when you need reassurance.</Text></View>
+      <View style={styles.hero}><Text style={[styles.kicker, { color: colors.success }]}>YOUR CAMPUS, ACCOUNTED FOR</Text><Text style={[styles.title, { color: colors.primary }]}>A calmer way to know you're here.</Text><Text style={[styles.intro, { color: colors.mutedForeground }]}>DIMSAT keeps your attendance record close, clear, and ready when you need reassurance.</Text></View>
       <View style={[styles.formCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
         <View style={[styles.tabs, { backgroundColor: colors.muted }]}><Pressable onPress={() => { setMode('login'); setError(''); }} style={[styles.tab, mode === 'login' && { backgroundColor: colors.primary }]}><Text style={[styles.tabLabel, { color: mode === 'login' ? colors.primaryForeground : colors.mutedForeground }]}>Log in</Text></Pressable><Pressable onPress={() => { setMode('register'); setError(''); }} style={[styles.tab, mode === 'register' && { backgroundColor: colors.primary }]}><Text style={[styles.tabLabel, { color: mode === 'register' ? colors.primaryForeground : colors.mutedForeground }]}>Register</Text></Pressable></View>
-        {mode === 'login' ? <View><Text style={[styles.formTitle, { color: colors.foreground }]}>Welcome back</Text><Text style={[styles.formSub, { color: colors.mutedForeground }]}>Use your certified Student ID to continue.</Text><Field label="Student ID" value={studentId} onChangeText={setStudentId} placeholder="AT-2026-0042" autoCapitalize="characters" autoCorrect={false} /><Field label="Password" value={password} onChangeText={setPassword} placeholder="Your password" secureTextEntry onSubmitEditing={submitLogin} error={error} /><PrimaryButton label="Continue to Attenda" icon="arrow-right" onPress={submitLogin} loading={busy} /><Text style={[styles.demo, { color: colors.mutedForeground }]}>Demo certified ID: <Text style={{ fontWeight: '700', color: colors.inkSoft }}>AT-2026-0042</Text> · Maya Santos</Text></View> :
+        {mode === 'login' ? <View><Text style={[styles.formTitle, { color: colors.foreground }]}>Welcome back</Text><Text style={[styles.formSub, { color: colors.mutedForeground }]}>Use your certified Student ID to continue.</Text><Field label="Student ID" value={studentId} onChangeText={setStudentId} placeholder="e.g. BSIS-2026-0001" autoCapitalize="characters" autoCorrect={false} /><Field label="Password" value={password} onChangeText={setPassword} placeholder="Your password" secureTextEntry onSubmitEditing={submitLogin} error={error} /><PrimaryButton label="Continue to Attenda" icon="arrow-right" onPress={submitLogin} loading={busy} /></View> :
           <RegisterForm name={name} setName={setName} studentId={studentId} setStudentId={setStudentId} password={password} setPassword={setPassword} confirm={confirm} setConfirm={setConfirm} error={error} busy={busy} setBusy={setBusy} setError={setError} />}
       </View>
       <View style={styles.promise}><Feather name="lock" size={16} color={colors.success} /><Text style={[styles.promiseText, { color: colors.mutedForeground }]}>Your student account stays on this device.</Text></View>
@@ -43,21 +43,21 @@ export default function WelcomeScreen() {
 
 function RegisterForm({ name, setName, studentId, setStudentId, password, setPassword, confirm, setConfirm, error, busy, setBusy, setError }: { name: string; setName: (v: string) => void; studentId: string; setStudentId: (v: string) => void; password: string; setPassword: (v: string) => void; confirm: string; setConfirm: (v: string) => void; error: string; busy: boolean; setBusy: (v: boolean) => void; setError: (v: string) => void }) {
   const colors = useColors();
-  const { register } = useAttendance();
+  const { register, lookupStudent } = useAttendance();
   const submit = async () => {
     setError('');
-    const certified = CERTIFIED_STUDENTS.find((item) => item.studentId === studentId.trim().toUpperCase());
-    if (!certified) return setError('Student ID is not included in the certified student list.');
-    if (certified.fullName.toLowerCase() !== name.trim().toLowerCase()) return setError('Full name does not match the certified student record.');
     if (password.length < 6) return setError('Password must be at least 6 characters.');
     if (password !== confirm) return setError('Passwords do not match.');
     setBusy(true);
-    const result = await register(certified, password);
+    // Validate Student ID + name against live API certified list
+    const lookup = await lookupStudent(studentId.trim(), name.trim());
+    if (!lookup.ok) { setBusy(false); return setError(lookup.error ?? 'Validation failed.'); }
+    const result = await register(lookup.student!, password);
     setBusy(false);
     if (!result.ok) return setError(result.error ?? '');
     router.replace('/(tabs)');
   };
-  return <View><Text style={[styles.formTitle, { color: colors.foreground }]}>Create your account</Text><Text style={[styles.formSub, { color: colors.mutedForeground }]}>Registration is matched against the certified list.</Text><Field label="Full name" value={name} onChangeText={setName} placeholder="As listed by your school" autoCapitalize="words" /><Field label="Student ID" value={studentId} onChangeText={setStudentId} placeholder="AT-2026-0042" autoCapitalize="characters" /><Field label="Password" value={password} onChangeText={setPassword} placeholder="At least 6 characters" secureTextEntry /><Field label="Confirm password" value={confirm} onChangeText={setConfirm} placeholder="Repeat your password" secureTextEntry error={error} /><PrimaryButton label="Create student account" icon="user-plus" onPress={submit} loading={busy} /><Text style={[styles.demo, { color: colors.mutedForeground }]}>Try the demo record: <Text style={{ fontWeight: '700', color: colors.inkSoft }}>Maya Santos</Text> with ID AT-2026-0042.</Text></View>;
+  return <View><Text style={[styles.formTitle, { color: colors.foreground }]}>Create your account</Text><Text style={[styles.formSub, { color: colors.mutedForeground }]}>Registration is matched against the certified list.</Text><Field label="Full name" value={name} onChangeText={setName} placeholder="As listed by your school" autoCapitalize="words" /><Field label="Student ID" value={studentId} onChangeText={setStudentId} placeholder="e.g. BSIS-2026-0001" autoCapitalize="characters" /><Field label="Password" value={password} onChangeText={setPassword} placeholder="At least 6 characters" secureTextEntry /><Field label="Confirm password" value={confirm} onChangeText={setConfirm} placeholder="Repeat your password" secureTextEntry error={error} /><PrimaryButton label="Create student account" icon="user-plus" onPress={submit} loading={busy} /></View>;
 }
 
 const styles = StyleSheet.create({

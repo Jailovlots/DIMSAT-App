@@ -1,9 +1,10 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { Platform, StyleSheet, useColorScheme, View } from 'react-native';
 import { useColors } from '@/hooks/useColors';
 import { Feather } from '@expo/vector-icons';
 import { BlurView } from 'expo-blur';
-import { Tabs } from 'expo-router';
+import { router, Tabs } from 'expo-router';
+import { useAttendance } from '@/context/AttendanceContext';
 
 // IMPORTANT: iOS 26 uses NativeTabs for native tabs with liquid glass support.
 // NativeTabs intentionally does NOT use custom design tokens — liquid glass
@@ -79,6 +80,28 @@ function ClassicTabLayout() {
   );
 }
 
+/**
+ * Auth guard wrapper: if account is null (logged out), redirect immediately to /welcome.
+ * This makes the logout button functional — as soon as the context clears activeStudentId,
+ * this effect fires and navigates away from the protected tabs.
+ */
+function AuthGuard({ children }: { children: React.ReactNode }) {
+  const { account, isReady } = useAttendance();
+
+  useEffect(() => {
+    if (isReady && !account) {
+      router.replace('/welcome');
+    }
+  }, [account, isReady]);
+
+  if (!isReady || !account) return null;
+  return <>{children}</>;
+}
+
 export default function TabLayout() {
-  return <ClassicTabLayout />;
+  return (
+    <AuthGuard>
+      <ClassicTabLayout />
+    </AuthGuard>
+  );
 }

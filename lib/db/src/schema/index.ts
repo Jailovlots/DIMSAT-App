@@ -66,6 +66,8 @@ export const officersTable = pgTable(
     officerId: text("officer_id").notNull(),
     fullName: text("full_name").notNull(),
     email: text("email").notNull(),
+    role: text("role").notNull().default("officer"),
+    passwordHash: text("password_hash"),
     status: text("status").notNull().default("active"),
     appUserId: integer("app_user_id"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
@@ -158,6 +160,32 @@ export const systemSettingsTable = pgTable("system_settings", {
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
+export const attendanceQrCodesTable = pgTable(
+  "attendance_qr_codes",
+  {
+    id: serial("id").primaryKey(),
+    qrName: text("qr_name").notNull(),
+    secureToken: text("secure_token").notNull(),
+    status: text("status").notNull().default("active"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => ({
+    tokenIdx: uniqueIndex("attendance_qr_codes_token_idx").on(table.secureToken),
+  }),
+);
+
+export const qrAssignmentsTable = pgTable("qr_assignments", {
+  id: serial("id").primaryKey(),
+  qrCodeId: integer("qr_code_id").notNull(),
+  eventId: integer("event_id").notNull(),
+  sessionId: integer("session_id"),
+  activatedBy: integer("activated_by"),
+  activatedAt: timestamp("activated_at", { withTimezone: true }).notNull().defaultNow(),
+  deactivatedAt: timestamp("deactivated_at", { withTimezone: true }),
+  status: text("status").notNull().default("active"),
+});
+
 export type AppUser = typeof appUsersTable.$inferSelect;
 export type CertifiedStudent = typeof certifiedStudentsTable.$inferSelect;
 export type Officer = typeof officersTable.$inferSelect;
@@ -165,3 +193,5 @@ export type AttendanceEvent = typeof eventsTable.$inferSelect;
 export type AttendanceSession = typeof attendanceSessionsTable.$inferSelect;
 export type AttendanceRecord = typeof attendanceRecordsTable.$inferSelect;
 export type SystemSettings = typeof systemSettingsTable.$inferSelect;
+export type AttendanceQrCode = typeof attendanceQrCodesTable.$inferSelect;
+export type QrAssignment = typeof qrAssignmentsTable.$inferSelect;

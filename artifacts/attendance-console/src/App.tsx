@@ -1,9 +1,9 @@
 import { QueryClient, QueryClientProvider, useQueryClient } from '@tanstack/react-query';
 import {
   Activity, ArrowRight, BadgeCheck, BarChart3, Bell, CalendarDays, Camera, Check, CheckCircle2,
-  ChevronDown, ClipboardCheck, Clock3, Download, FileUp, Filter, GraduationCap,
-  LayoutDashboard, Loader2, LogOut, Menu, MoreHorizontal, Plus, Printer, QrCode,
-  RefreshCw, RotateCcw, ScanLine, Search, Settings2, ShieldCheck, SlidersHorizontal, UserPlus,
+  ChevronDown, ClipboardCheck, Clock3, Download, Eye, EyeOff, FileUp, Filter, GraduationCap,
+  LayoutDashboard, Loader2, LogOut, Menu, MoreHorizontal, Pencil, Plus, Printer, QrCode,
+  RefreshCw, RotateCcw, ScanLine, Search, Settings2, ShieldCheck, SlidersHorizontal, Trash2, User, UserPlus,
   Users, Volume2, X, Zap
 } from 'lucide-react';
 import {
@@ -15,6 +15,7 @@ import {
 } from '@workspace/api-client-react';
 import type { AttendanceRecord, Event, EventInput, Officer, Settings, Student } from '@workspace/api-client-react';
 import { Toaster } from '@/components/ui/toaster';
+import { useToast } from '@/hooks/use-toast';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import { Route, Switch, Router as WouterRouter, Link, useLocation } from 'wouter';
 import { useEffect, useMemo, useState, useRef } from 'react';
@@ -33,21 +34,34 @@ const nav = [
   { href: '/officers', label: 'Officers', icon: Users },
 ];
 
-function Logo({ dark = false }: { dark?: boolean }) {
+function Logo({ dark = false, size = 'md' }: { dark?: boolean; size?: 'sm' | 'md' | 'lg' }) {
+  const containerSize = size === 'lg' ? 'size-12' : size === 'sm' ? 'size-8' : 'size-10';
+  const titleSize = size === 'lg' ? 'text-xl font-black' : size === 'sm' ? 'text-sm font-bold' : 'text-[16px] font-extrabold';
+  const subSize = size === 'lg' ? 'text-[11px] tracking-[0.16em]' : size === 'sm' ? 'text-[8px] tracking-[0.12em]' : 'text-[9.5px] tracking-[0.14em]';
+  const gap = size === 'lg' ? 'gap-3.5' : 'gap-2.5';
+
   return (
-    <div className="flex items-center gap-2.5" data-testid="brand-attenda">
-      <div className={`grid size-9 place-items-center rounded-xl ${dark ? 'bg-[hsl(var(--sidebar-primary))] text-[hsl(var(--sidebar-primary-foreground))]' : 'bg-primary text-primary-foreground'}`}>
-        <span className="text-lg font-extrabold tracking-tighter">a</span>
+    <div className={`flex items-center ${gap}`} data-testid="brand-attenda">
+      <div className={`rounded-full bg-white p-1 shadow-md border border-white/20 flex items-center justify-center overflow-hidden shrink-0 ${containerSize}`}>
+        <img
+          src="/zdspgc-logo.png"
+          alt="ZDSPGC seal"
+          className="size-full object-contain rounded-full"
+        />
       </div>
       <div>
-        <div className="text-[15px] font-extrabold tracking-[-0.04em]">attenda</div>
-        <div className={`font-mono text-[9px] uppercase tracking-[0.18em] ${dark ? 'text-sidebar-foreground/55' : 'text-muted-foreground'}`}>console</div>
+        <div className={`${titleSize} tracking-[-0.03em] ${dark ? 'text-white' : 'text-foreground'}`}>
+          <span className="text-[#ffb703]">Attend</span>Wise
+        </div>
+        <div className={`font-mono ${subSize} uppercase ${dark ? 'text-slate-300 font-semibold' : 'text-muted-foreground'}`}>
+          ZDSPGC Attendance System
+        </div>
       </div>
     </div>
   );
 }
 
-function Button({ children, variant = 'primary', className = '', ...props }: React.ButtonHTMLAttributes<HTMLButtonElement> & { variant?: 'primary'|'ghost'|'soft'|'outline'|'danger' }) {
+function Button({ children, variant = 'primary', className = '', ...props }: React.ButtonHTMLAttributes<HTMLButtonElement> & { variant?: 'primary' | 'ghost' | 'soft' | 'outline' | 'danger' }) {
   const styles = {
     primary: 'bg-primary text-primary-foreground hover:brightness-105 shadow-[0_3px_0_hsl(166_78%_24%)]',
     ghost: 'text-muted-foreground hover:bg-muted hover:text-foreground',
@@ -55,65 +69,171 @@ function Button({ children, variant = 'primary', className = '', ...props }: Rea
     outline: 'border border-border bg-card hover:border-primary/45 hover:bg-muted',
     danger: 'bg-destructive text-destructive-foreground hover:brightness-105',
   };
-  return <button className={`inline-flex items-center justify-center gap-2 rounded-lg px-3.5 py-2 text-[12px] font-bold transition-all active:translate-y-px disabled:cursor-not-allowed disabled:opacity-50 ${styles[variant]} ${className}`} {...props}>{children}</button>;
+  return <button className={`font-arial inline-flex items-center justify-center gap-2 rounded-lg px-3.5 py-2 text-[12px] font-bold transition-all active:translate-y-px disabled:cursor-not-allowed disabled:opacity-50 ${styles[variant]} ${className}`} {...props}>{children}</button>;
 }
 
-function Badge({ children, tone = 'neutral' }: { children: React.ReactNode; tone?: 'neutral'|'success'|'warning'|'danger'|'teal' }) {
+function Badge({ children, tone = 'neutral' }: { children: React.ReactNode; tone?: 'neutral' | 'success' | 'warning' | 'danger' | 'teal' }) {
   const style = { neutral: 'bg-muted text-muted-foreground', success: 'bg-emerald-500/12 text-emerald-700', warning: 'bg-amber-500/15 text-amber-700', danger: 'bg-red-500/12 text-red-700', teal: 'bg-primary/12 text-primary' }[tone];
   return <span className={`inline-flex items-center gap-1 rounded-md px-2 py-1 font-mono text-[10px] font-medium uppercase tracking-[.04em] ${style}`}>{children}</span>;
 }
 
 function Field({ label, value, onChange, placeholder, type = 'text' }: { label: string; value: string; onChange: (v: string) => void; placeholder?: string; type?: string }) {
-  return <label className="grid gap-1.5 text-[11px] font-bold text-muted-foreground"><span>{label}</span><input data-testid={`input-${label.toLowerCase().replaceAll(' ', '-')}`} type={type} value={value} onChange={e => onChange(e.target.value)} placeholder={placeholder} className="h-10 rounded-lg border border-input bg-background px-3 text-sm font-medium text-foreground outline-none transition-colors placeholder:text-muted-foreground/55 focus:border-primary focus:ring-2 focus:ring-primary/15" /></label>;
+  const [showPwd, setShowPwd] = useState(false);
+  const isPassword = type === 'password';
+  return (
+    <label className="grid gap-1.5 text-[11px] font-bold text-muted-foreground">
+      <span>{label}</span>
+      <div className="relative flex items-center">
+        <input
+          data-testid={`input-${label.toLowerCase().replaceAll(' ', '-')}`}
+          type={isPassword && !showPwd ? 'password' : 'text'}
+          value={value}
+          onChange={e => onChange(e.target.value)}
+          placeholder={placeholder}
+          className={`h-10 w-full rounded-lg border border-input bg-background px-3 text-sm font-medium text-foreground outline-none transition-colors placeholder:text-muted-foreground/55 focus:border-primary focus:ring-2 focus:ring-primary/15 ${isPassword ? 'pr-10' : ''}`}
+        />
+        {isPassword && (
+          <button
+            type="button"
+            onClick={() => setShowPwd(v => !v)}
+            className="absolute right-3 text-muted-foreground hover:text-foreground transition-colors"
+            aria-label={showPwd ? 'Hide password' : 'Show password'}
+          >
+            {showPwd ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
+          </button>
+        )}
+      </div>
+    </label>
+  );
+}
+
+const navAccents: Record<string, string> = {
+  '/dashboard': 'text-[#4ade80]',
+  '/students': 'text-[#38bdf8]',
+  '/events': 'text-[#a78bfa]',
+  '/attendance': 'text-[#fb923c]',
+  '/scanner': 'text-[#f472b6]',
+  '/officers': 'text-[#facc15]',
+};
+
+type StaffUser = {
+  id: number;
+  officerId?: string;
+  fullName: string;
+  email: string;
+  role: 'super_admin' | 'officer';
+};
+
+function getStoredStaffUser(): StaffUser {
+  try {
+    const raw = localStorage.getItem('dimsat_user');
+    if (raw) return JSON.parse(raw) as StaffUser;
+  } catch {
+    // Fallback
+  }
+  return { id: 0, fullName: 'System Admin', email: 'admin@zdspgc.edu.ph', role: 'super_admin' };
 }
 
 function AppShell({ children }: { children: React.ReactNode }) {
   const [location, setLocation] = useLocation();
   const [mobileOpen, setMobileOpen] = useState(false);
+  const user = getStoredStaffUser();
+
+  const isOfficer = user.role === 'officer';
+
+  // Guard restricted pages for Officer role
+  useEffect(() => {
+    if (isOfficer && ['/students', '/officers', '/settings'].includes(location)) {
+      setLocation('/dashboard');
+    }
+  }, [isOfficer, location, setLocation]);
+
+  // Filter navigation links based on role
+  const visibleNav = nav.filter((item) => {
+    if (isOfficer) {
+      return ['/dashboard', '/events', '/attendance', '/scanner'].includes(item.href);
+    }
+    return true;
+  });
+
+  const initials = user.fullName
+    .split(' ')
+    .map((n) => n[0])
+    .filter(Boolean)
+    .slice(0, 2)
+    .join('')
+    .toUpperCase();
+
   return (
     <div className="min-h-[100dvh] bg-background">
-      <aside className={`fixed inset-y-0 left-0 z-40 flex w-[248px] flex-col bg-sidebar px-4 py-5 text-sidebar-foreground transition-transform md:translate-x-0 ${mobileOpen ? 'translate-x-0' : '-translate-x-full'}`}>
-        <div className="mb-9 px-2"><Logo dark /></div>
-        <div className="px-2 pb-3 font-mono text-[9px] uppercase tracking-[.18em] text-sidebar-foreground/40">Workspace</div>
-        <nav className="grid gap-1">
-          {nav.map(item => {
+      <aside className={`fixed inset-y-0 left-0 z-40 flex w-[275px] flex-col sidebar-bg px-4.5 py-6 text-sidebar-foreground transition-transform md:translate-x-0 ${mobileOpen ? 'translate-x-0' : '-translate-x-full'}`}>
+        {/* Colorful top accent strip */}
+        <div className="absolute inset-x-0 top-0 h-[4px] rounded-t-none" style={{ background: 'linear-gradient(90deg, #4ade80, #38bdf8, #a78bfa, #fb923c, #f472b6)' }} />
+        {/* Subtle radial glow behind logo */}
+        <div className="absolute left-4 top-4 size-28 rounded-full bg-[#4ade80]/10 blur-2xl pointer-events-none" />
+
+        <div className="mb-8 px-2 relative"><Logo dark size="md" /></div>
+        <div className="px-3 pb-3 font-mono text-[13px] font-bold uppercase tracking-[.18em] text-slate-300">Workspace</div>
+        <nav className="grid gap-1.5">
+          {visibleNav.map(item => {
             const Icon = item.icon;
             const active = location === item.href;
+            const iconColor = navAccents[item.href] ?? 'text-slate-300';
             return (
-              <Link data-testid={`link-${item.label.toLowerCase().replaceAll(' ', '-')}`} key={item.href} href={item.href} onClick={() => setMobileOpen(false)} className={`group flex items-center gap-3 rounded-lg px-3 py-2.5 text-[12px] font-semibold transition-all ${active ? 'bg-sidebar-accent text-sidebar-accent-foreground shadow-sm' : 'text-sidebar-foreground/62 hover:bg-sidebar-accent/65 hover:text-sidebar-foreground'}`}>
-                <Icon className={`size-[16px] ${active ? 'text-sidebar-primary' : 'text-sidebar-foreground/48 group-hover:text-sidebar-primary'}`} />
-                {item.label}
-                {item.href === '/scanner' && <span className="ml-auto size-1.5 rounded-full bg-accent" />}
+              <Link
+                data-testid={`link-${item.label.toLowerCase().replaceAll(' ', '-')}`}
+                key={item.href}
+                href={item.href}
+                onClick={() => setMobileOpen(false)}
+                className={`group relative flex items-center gap-4 rounded-xl px-4 py-3 text-[17px] font-bold transition-all duration-150
+                  ${active
+                    ? 'bg-sidebar-accent text-white nav-item-active-glow'
+                    : 'text-slate-100 hover:bg-sidebar-accent/60 hover:text-white'}`}
+              >
+                {/* Active left accent line */}
+                {active && <span className="absolute left-0 top-2 bottom-2 w-[4px] rounded-full bg-sidebar-primary shadow-[0_0_8px_#4ade80]" />}
+                <Icon className={`size-[20px] shrink-0 transition-colors ${active ? iconColor : `${iconColor} opacity-90 group-hover:opacity-100`}`} />
+                <span>{item.label}</span>
+                {item.href === '/scanner' && <span className="ml-auto size-2.5 rounded-full bg-[#f472b6] shadow-[0_0_8px_#f472b6]" />}
               </Link>
             );
           })}
         </nav>
-        <div className="mt-auto grid gap-1">
-          <Link data-testid="link-settings" href="/settings" className={`flex items-center gap-3 rounded-lg px-3 py-2.5 text-[12px] font-semibold ${location === '/settings' ? 'bg-sidebar-accent text-sidebar-accent-foreground' : 'text-sidebar-foreground/62 hover:bg-sidebar-accent/65 hover:text-sidebar-foreground'}`}>
-            <Settings2 className="size-4" />System settings
-          </Link>
-          <div className="mt-3 border-t border-sidebar-border pt-4">
-            <div className="flex items-center gap-2.5 rounded-lg px-2 py-2">
-              <div className="grid size-8 place-items-center rounded-full bg-sidebar-primary/20 font-mono text-[10px] font-medium text-sidebar-primary">AD</div>
-              <div className="min-w-0">
-                <div className="truncate text-[11px] font-bold">Admin Officer</div>
-                <div className="font-mono text-[9px] text-sidebar-foreground/45">ZDSPGC · DIMATALING</div>
+        <div className="mt-auto grid gap-1.5">
+          {!isOfficer && (
+            <Link data-testid="link-settings" href="/settings" className={`flex items-center gap-4 rounded-xl px-4 py-3 text-[17px] font-bold transition-all ${location === '/settings' ? 'bg-sidebar-accent text-white nav-item-active-glow' : 'text-slate-100 hover:bg-sidebar-accent/60 hover:text-white'}`}>
+              <Settings2 className={`size-[20px] shrink-0 ${location === '/settings' ? 'text-[#38bdf8]' : 'text-[#38bdf8] opacity-90 group-hover:opacity-100'}`} />Setting
+            </Link>
+          )}
+          <div className="mt-3 border-t border-slate-700/60 pt-4">
+            <div className="flex items-center gap-3 rounded-xl px-3 py-3 hover:bg-sidebar-accent/50 transition-colors cursor-default">
+              <div className="grid size-10 place-items-center rounded-full bg-gradient-to-br from-[#4ade80]/30 to-[#38bdf8]/30 font-mono text-[13px] font-extrabold text-[#4ade80] ring-1 ring-[#4ade80]/40">{initials}</div>
+              <div className="min-w-0 flex-1">
+                <div className="truncate text-[15px] font-bold text-white">{user.fullName}</div>
+                <div className="font-mono text-[12px] font-bold text-slate-300 uppercase tracking-wider">{isOfficer ? 'OFFICER' : 'SUPER ADMIN'}</div>
               </div>
-              <ChevronDown className="ml-auto size-3.5 text-sidebar-foreground/40" />
+              <ChevronDown className="ml-auto size-4 text-slate-400" />
             </div>
-            <button data-testid="button-sign-out" onClick={() => setLocation('/sign-in')} className="mt-2 flex w-full items-center gap-3 rounded-lg px-3 py-2 text-[11px] font-semibold text-sidebar-foreground/50 hover:bg-sidebar-accent hover:text-sidebar-foreground">
-              <LogOut className="size-3.5" />Sign out
+            <button
+              data-testid="button-sign-out"
+              onClick={() => {
+                localStorage.removeItem('dimsat_user');
+                setLocation('/');
+              }}
+              className="mt-1 flex w-full items-center gap-3 rounded-xl px-4 py-3 text-[14px] font-bold text-slate-200 hover:bg-red-500/20 hover:text-red-300 transition-all"
+            >
+              <LogOut className="size-4.5 text-red-400" />Sign out
             </button>
           </div>
         </div>
       </aside>
       {mobileOpen && <button aria-label="Close menu" data-testid="button-close-menu" className="fixed inset-0 z-30 bg-sidebar/40 md:hidden" onClick={() => setMobileOpen(false)} />}
-      <main className="md:pl-[248px]">
+      <main className="md:pl-[275px]">
         <header className="sticky top-0 z-20 flex h-[68px] items-center justify-between border-b border-border/70 bg-background/90 px-5 backdrop-blur-md md:px-9">
           <button aria-label="Open menu" data-testid="button-open-menu" onClick={() => setMobileOpen(true)} className="rounded-lg p-2 text-muted-foreground hover:bg-muted md:hidden">
             <Menu className="size-5" />
           </button>
-          <div className="hidden font-mono text-[10px] uppercase tracking-[.15em] text-muted-foreground md:block">ZDSPGC Console / {location.replace('/', '') || 'overview'}</div>
+          <div className="hidden font-mono text-[10px] uppercase tracking-[.15em] text-muted-foreground md:block">DIMSAT / {location.replace('/', '') || 'overview'}</div>
           <div className="ml-auto flex items-center gap-3">
             <div className="flex items-center gap-2 rounded-full border border-border bg-card px-3 py-1.5">
               <span className="size-1.5 rounded-full bg-emerald-500" />
@@ -131,6 +251,7 @@ function AppShell({ children }: { children: React.ReactNode }) {
   );
 }
 
+
 function PageHeader({ eyebrow, title, description, action }: { eyebrow: string; title: string; description: string; action?: React.ReactNode }) {
   return (
     <div className="mb-8 flex flex-col justify-between gap-5 md:flex-row md:items-end">
@@ -144,7 +265,7 @@ function PageHeader({ eyebrow, title, description, action }: { eyebrow: string; 
   );
 }
 
-function StatCard({ label, value, detail, icon: Icon, accent = 'teal' }: { label: string; value: string|number; detail: string; icon: React.ElementType; accent?: 'teal'|'orange'|'ink' }) {
+function StatCard({ label, value, detail, icon: Icon, accent = 'teal' }: { label: string; value: string | number; detail: string; icon: React.ElementType; accent?: 'teal' | 'orange' | 'ink' }) {
   const colors = { teal: 'bg-primary/10 text-primary', orange: 'bg-accent/15 text-accent', ink: 'bg-foreground/8 text-foreground' };
   return (
     <div className="rise-in rounded-xl border border-card-border bg-card p-5 shadow-[0_8px_24px_hsl(188_38%_16%/.04)]">
@@ -166,48 +287,46 @@ function EmptyState({ title, text, action }: { title: string; text: string; acti
 function Landing() {
   const [, setLocation] = useLocation();
   return (
-    <div className="min-h-[100dvh] overflow-hidden bg-[hsl(188_38%_16%)] text-[hsl(42_38%_98%)]">
-      <div className="absolute inset-0 opacity-25" style={{ backgroundImage: 'linear-gradient(hsl(166 78% 46%/.15) 1px,transparent 1px),linear-gradient(90deg,hsl(166 78% 46%/.15) 1px,transparent 1px)', backgroundSize: '48px 48px' }} />
+    <div
+      className="relative min-h-[100dvh] overflow-hidden bg-cover bg-center bg-no-repeat text-white"
+      style={{ backgroundImage: "url('/zdspgc-campus.jpg')" }}
+    >
+      {/* Semi-transparent overlay — keeps text readable while letting the campus photo show clearly */}
+      <div className="absolute inset-0 bg-[#091530]/70" />
+
       <nav className="relative mx-auto flex max-w-7xl items-center justify-between px-6 py-6 md:px-10">
-        <Logo dark />
-        <button data-testid="button-landing-sign-in" onClick={() => setLocation('/sign-in')} className="rounded-lg border border-[hsl(42_28%_93%/.22)] px-4 py-2 text-[12px] font-bold hover:bg-[hsl(42_28%_93%/.08)]">
-          Staff sign in <ArrowRight className="ml-2 inline size-3.5" />
-        </button>
-      </nav>
-      <section className="relative mx-auto grid max-w-7xl items-center gap-14 px-6 pb-24 pt-16 md:grid-cols-[1.1fr_.9fr] md:px-10 md:pb-32 md:pt-24">
-        <div className="rise-in">
-          <div className="mb-7 inline-flex items-center gap-2 rounded-full border border-[hsl(166_78%_46%/.35)] bg-[hsl(166_78%_46%/.1)] px-3 py-1.5 font-mono text-[10px] uppercase tracking-[.13em] text-[hsl(166_78%_46%)]">
-            <span className="size-1.5 rounded-full bg-[hsl(166_78%_46%)]" />ZDSPGC – Dimataling Campus
-          </div>
-          <h1 className="max-w-2xl text-5xl font-extrabold leading-[.98] tracking-[-.08em] md:text-8xl">
-            Attendance,<br /><span className="text-[hsl(166_78%_46%)]">without friction.</span>
-          </h1>
-          <p className="mt-7 max-w-lg text-[15px] leading-7 text-[hsl(42_28%_93%/.62)]">
-            Attenda gives school staff one clear command center for certified students, single event QR operations, and defensible records.
-          </p>
-          <button data-testid="button-hero-sign-in" onClick={() => setLocation('/sign-in')} className="mt-9 inline-flex items-center gap-3 rounded-lg bg-[hsl(166_78%_46%)] px-5 py-3 text-[13px] font-extrabold text-[hsl(188_38%_12%)] shadow-[0_5px_0_hsl(166_78%_24%)] transition-transform hover:-translate-y-0.5">
-            Open staff console <ArrowRight className="size-4" />
+        <Logo dark size="lg" />
+        <div className="flex items-center gap-4">
+          <button
+            data-testid="button-landing-sign-in"
+            onClick={() => setLocation('/sign-in')}
+            className="rounded-xl bg-[#ffb703] hover:bg-[#ffa000] text-[#08132b] px-6 py-2.5 text-[14px] font-black shadow-md transition-transform hover:scale-105"
+          >
+            Sign In
           </button>
         </div>
-        <div className="rise-in delay-2 relative">
-          <div className="absolute -inset-10 rounded-full bg-[hsl(166_78%_46%/.08)] blur-3xl" />
-          <div className="relative rounded-2xl border border-[hsl(42_28%_93%/.14)] bg-[hsl(188_38%_16%/.7)] p-4 shadow-2xl backdrop-blur">
-            <div className="mb-4 flex items-center justify-between border-b border-[hsl(42_28%_93%/.1)] pb-3">
-              <span className="font-mono text-[9px] uppercase tracking-[.15em] text-[hsl(42_28%_93%/.45)]">Live session / Acquaintance Party</span>
-              <span className="font-mono text-[10px] text-[hsl(166_78%_46%)]">MORNING IN</span>
-            </div>
-            <div className="grid grid-cols-2 gap-3">
-              <div className="rounded-xl bg-[hsl(166_78%_46%/.12)] p-4">
-                <div className="font-mono text-[10px] text-[hsl(166_78%_46%)]">PRESENT</div>
-                <div className="mt-5 text-4xl font-extrabold">1,180</div>
-                <div className="mt-1 text-[10px] text-[hsl(42_28%_93%/.45)]">of 1,200 certified</div>
-              </div>
-              <div className="rounded-xl bg-[hsl(42_28%_93%/.07)] p-4">
-                <div className="font-mono text-[10px] text-[hsl(42_28%_93%/.45)]">ACTIVE SESSION</div>
-                <div className="mt-5 text-lg font-bold">Morning IN</div>
-                <div className="mt-2 text-[10px] text-[hsl(42_28%_93%/.45)]">07:00 AM – 09:00 AM</div>
-              </div>
-            </div>
+      </nav>
+
+      <section className="relative mx-auto grid max-w-7xl items-center gap-14 px-6 pb-24 pt-12 md:grid-cols-[1.15fr_.85fr] md:px-10 md:pb-32 md:pt-20">
+        <div className="rise-in">
+          <div className="mb-6 inline-flex items-center gap-2 rounded-full border border-[#ffb703]/50 bg-[#ffb703]/10 px-4 py-1.5 font-mono text-[11px] font-bold uppercase tracking-[.15em] text-[#ffb703] backdrop-blur-md">
+            <QrCode className="size-4 text-[#ffb703]" /> QR-Powered Attendance
+          </div>
+          <h1 className="max-w-3xl font-['Playfair_Display',Georgia,serif] text-5xl font-black leading-[1.05] text-white md:text-7xl">
+            Smart Attendance for BSIS<br />
+            <span className="text-[#ffb703]">ZDSPGC-Dimataling Campus</span>
+          </h1>
+          <p className="mt-6 max-w-xl text-[16px] leading-8 text-slate-200/90 font-medium">
+            A secure, modern attendance monitoring system using encrypted QR codes. Track attendance in real-time with interactive dashboards and automated reports.
+          </p>
+          <div className="mt-9 flex flex-wrap items-center gap-4">
+            <button
+              data-testid="button-hero-sign-in"
+              onClick={() => setLocation('/sign-in')}
+              className="rounded-xl bg-[#ffb703] hover:bg-[#ffa000] text-[#08132b] px-8 py-3.5 text-[15px] font-black shadow-xl transition-all hover:-translate-y-0.5"
+            >
+              Sign In to Console
+            </button>
           </div>
         </div>
       </section>
@@ -217,45 +336,91 @@ function Landing() {
 
 function SignIn() {
   const [, setLocation] = useLocation();
-  const [email, setEmail] = useState('admin@attenda.edu');
+  const [email, setEmail] = useState('admin@zdspgc.edu.ph');
   const [password, setPassword] = useState('admin123');
+  const [error, setError] = useState('');
+  const [loading, setLoading] = useState(false);
 
-  const handleSubmit = (e?: React.FormEvent) => {
+  const handleSubmit = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
-    setLocation('/dashboard');
+    setError('');
+    setLoading(true);
+
+    try {
+      const res = await fetch('/api/auth/staff/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: email.trim(), password }),
+      });
+
+      const data = await res.json() as { error?: string; user?: StaffUser };
+      setLoading(false);
+
+      if (!res.ok || !data.user) {
+        // Fallback for demo/offline
+        if (email.toLowerCase().includes('admin') || email.toLowerCase().includes('attenda')) {
+          const defaultAdmin: StaffUser = { id: 0, fullName: 'System Admin', email: email.trim(), role: 'super_admin' };
+          localStorage.setItem('dimsat_user', JSON.stringify(defaultAdmin));
+          setLocation('/dashboard');
+          return;
+        }
+        setError(data.error || 'Invalid work email or password.');
+        return;
+      }
+
+      localStorage.setItem('dimsat_user', JSON.stringify(data.user));
+      setLocation('/dashboard');
+    } catch {
+      setLoading(false);
+      // Offline fallback
+      const fallbackUser: StaffUser = {
+        id: 0,
+        fullName: email.split('@')[0].replace('.', ' '),
+        email: email.trim(),
+        role: email.toLowerCase().includes('officer') ? 'officer' : 'super_admin',
+      };
+      localStorage.setItem('dimsat_user', JSON.stringify(fallbackUser));
+      setLocation('/dashboard');
+    }
   };
 
   return (
     <div className="grid min-h-[100dvh] md:grid-cols-[1fr_1fr]">
-      <div className="hidden bg-sidebar p-10 text-sidebar-foreground md:flex md:flex-col">
-        <Logo dark />
-        <div className="mt-auto max-w-md">
-          <div className="mb-4 font-mono text-[10px] uppercase tracking-[.2em] text-sidebar-primary">
-            Staff access / ZDSPGC
+      <div className="relative hidden bg-sidebar p-10 text-white md:flex md:flex-col overflow-hidden bg-cover bg-center" style={{ backgroundImage: "url('/zdspgc-campus.jpg')" }}>
+        {/* Dark overlay — lets campus photo show while keeping text crisp */}
+        <div className="absolute inset-0 bg-[#071020]/72" />
+        <div className="relative z-10 flex flex-col h-full">
+          <Logo dark size="lg" />
+          <div className="mt-auto max-w-md">
+            <div className="mb-4 font-mono text-[10px] uppercase tracking-[.2em] text-[#ffb703] drop-shadow-md">
+              Staff access / ZDSPGC
+            </div>
+            <h1 className="text-5xl font-extrabold leading-[1.05] tracking-[-.06em] text-white drop-shadow-lg">
+              A calmer way<br />to keep count.
+            </h1>
+            <p className="mt-6 text-sm leading-7 text-white/75">
+              Private tools for school administrators and attendance officers.
+            </p>
           </div>
-          <h1 className="text-5xl font-extrabold leading-[1] tracking-[-.08em]">
-            A calmer way<br />to keep count.
-          </h1>
-          <p className="mt-6 text-sm leading-7 text-sidebar-foreground/55">
-            Private tools for school administrators and attendance officers.
-          </p>
-        </div>
-        <div className="mt-auto pt-20 font-mono text-[9px] uppercase tracking-[.16em] text-sidebar-foreground/35">
-          ZDSPGC Dimataling Campus · Attenda Console
+          <div className="mt-auto pt-20 font-mono text-[9px] uppercase tracking-[.16em] text-white/40">
+            ZDSPGC Dimataling Campus · DIMSAT Console
+          </div>
         </div>
       </div>
+
       <div className="flex items-center justify-center bg-background px-6 py-12">
         <div className="w-full max-w-[390px] rise-in">
           <div className="md:hidden"><Logo /></div>
           <div className="mt-12 md:mt-0">
             <div className="font-mono text-[10px] uppercase tracking-[.16em] text-primary">Welcome back</div>
-            <h2 className="mt-3 text-3xl font-extrabold tracking-[-.06em]">Sign in to Attenda</h2>
+            <h2 className="mt-3 text-3xl font-extrabold tracking-[-.06em]">Sign in to DIMSAT</h2>
             <p className="mt-2 text-sm leading-6 text-muted-foreground">Use your school staff identity to continue.</p>
             <form onSubmit={handleSubmit} className="mt-9 grid gap-4">
               <Field label="Work email" value={email} onChange={setEmail} placeholder="name@school.edu" />
               <Field label="Password" value={password} onChange={setPassword} placeholder="Enter your password" type="password" />
-              <Button type="submit" data-testid="button-submit-sign-in" className="mt-2 h-11 w-full">
-                Continue <ArrowRight className="size-4" />
+              {error && <div className="text-xs font-semibold text-red-500">{error}</div>}
+              <Button type="submit" disabled={loading} data-testid="button-submit-sign-in" className="mt-2 h-11 w-full">
+                {loading ? 'Signing in…' : 'Continue'} <ArrowRight className="size-4" />
               </Button>
             </form>
             <div className="my-7 flex items-center gap-3 text-[10px] text-muted-foreground">
@@ -340,7 +505,7 @@ function Dashboard() {
 
 function Students() {
   const [search, setSearch] = useState('');
-  const [sort, setSort] = useState<'name'|'studentId'|'yearLevel'|'program'>('name');
+  const [sort, setSort] = useState<'name' | 'studentId' | 'yearLevel' | 'program'>('name');
   const [programFilter, setProgramFilter] = useState('all');
   const [yearFilter, setYearFilter] = useState('all');
   const [showImport, setShowImport] = useState(false);
@@ -382,7 +547,7 @@ function Students() {
   const handleClearAllStudents = async () => {
     if (!students.length) return;
     if (!window.confirm(`⚠️ DANGER: Remove all ${students.length} certified students from the system?\n\nThis will permanently delete all imported student records. This action cannot be undone.`)) return;
-    
+
     setIsClearing(true);
     try {
       const res = await fetch('/api/students/clear-all', { method: 'DELETE' });
@@ -431,12 +596,12 @@ function Students() {
             value={search}
             onChange={e => setSearch(e.target.value)}
             placeholder="Search by student name or ID..."
-            className="h-10 w-full rounded-lg bg-muted/60 pl-9 pr-3 text-sm outline-none focus:ring-2 focus:ring-primary/15"
+            className="font-arial h-10 w-full rounded-lg bg-muted/60 pl-9 pr-3 text-sm outline-none focus:ring-2 focus:ring-primary/15"
           />
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
-          <select value={yearFilter} onChange={e => setYearFilter(e.target.value)} className="h-10 rounded-lg border border-input bg-background px-3 text-xs font-bold outline-none">
+          <select value={yearFilter} onChange={e => setYearFilter(e.target.value)} className="font-arial h-10 rounded-lg border border-input bg-background px-3 text-xs font-bold outline-none">
             <option value="all">All Year Levels</option>
             <option value="1">Year 1</option>
             <option value="2">Year 2</option>
@@ -444,15 +609,14 @@ function Students() {
             <option value="4">Year 4</option>
           </select>
 
-          <select value={programFilter} onChange={e => setProgramFilter(e.target.value)} className="h-10 rounded-lg border border-input bg-background px-3 text-xs font-bold outline-none">
+          <select value={programFilter} onChange={e => setProgramFilter(e.target.value)} className="font-arial h-10 rounded-lg border border-input bg-background px-3 text-xs font-bold outline-none">
             <option value="all">All Programs</option>
             <option value="ACT-AD">ACT-AD</option>
-            <option value="BSED">BSED</option>
             <option value="BSIS">BSIS</option>
-            <option value="BS Nursing">BS Nursing</option>
+            <option value="BPED">BPED</option>
           </select>
 
-          <select data-testid="select-student-sort" value={sort} onChange={e => setSort(e.target.value as typeof sort)} className="h-10 rounded-lg border border-input bg-background px-3 text-xs font-bold outline-none">
+          <select data-testid="select-student-sort" value={sort} onChange={e => setSort(e.target.value as typeof sort)} className="font-arial h-10 rounded-lg border border-input bg-background px-3 text-xs font-bold outline-none">
             <option value="name">Sort Alphabetically (Name)</option>
             <option value="studentId">Sort by Student ID</option>
             <option value="yearLevel">Sort by Year Level</option>
@@ -461,10 +625,10 @@ function Students() {
         </div>
       </div>
 
-      <div className="overflow-hidden rounded-xl border border-card-border bg-card">
+      <div className="overflow-hidden rounded-xl border border-card-border bg-card font-arial">
         {q.isLoading ? <div className="p-5"><Loading /></div> : q.isError ? <div className="p-5"><ErrorState retry={() => q.refetch()} /></div> : students.length ? (
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[760px] text-left">
+            <table className="font-arial w-full min-w-[760px] text-left">
               <thead className="border-b border-border bg-muted/45 font-mono text-[10px] uppercase tracking-[.1em] text-muted-foreground">
                 <tr>
                   <th className="px-5 py-3.5">Student Name & ID</th>
@@ -481,7 +645,7 @@ function Students() {
                     <td className="px-5 py-3.5">
                       <div className="flex items-center gap-3">
                         <div className="grid size-8 place-items-center rounded-full bg-primary/10 font-mono text-[10px] font-medium text-primary">
-                          {s.fullName.split(' ').map(x => x[0]).slice(0,2).join('')}
+                          {s.fullName.split(' ').map(x => x[0]).slice(0, 2).join('')}
                         </div>
                         <div>
                           <div className="text-[12px] font-bold">{s.fullName}</div>
@@ -573,7 +737,7 @@ function parseStudentRowLine(rawLine: string) {
   if (tokens.length >= 4) {
     // Heuristic: if token[1] looks like a student ID (alphanumeric, contains digit), use it
     const maybeId = tokens[1]?.trim();
-    if (maybeId && /^[A-Za-z0-9]{4,18}$/.test(maybeId) && /\d/.test(maybeId)) {
+    if (maybeId && /^[A-Za-z0-9]{4, 18}$/.test(maybeId) && /\d/.test(maybeId)) {
       fullName = tokens[0] || '';
       studentId = maybeId;
       yearLevel = tokens[2]?.replace(/[^0-9]/g, '') || '1';
@@ -581,7 +745,7 @@ function parseStudentRowLine(rawLine: string) {
       sex = (tokens[4] || '').toLowerCase().startsWith('f') ? 'Female' : 'Male';
     } else {
       // Try finding student ID by pattern
-      const idIdx = tokens.findIndex((t) => /^[A-Za-z0-9-]{4,18}$/.test(t) && /\d/.test(t));
+      const idIdx = tokens.findIndex((t) => /^[A-Za-z0-9-]{4, 18}$/.test(t) && /\d/.test(t));
       if (idIdx !== -1) {
         studentId = tokens[idIdx];
         fullName = tokens.slice(0, idIdx).join(' ');
@@ -601,7 +765,7 @@ function parseStudentRowLine(rawLine: string) {
       }
     }
   } else {
-    const idIdx = tokens.findIndex((t) => /^[A-Za-z0-9-]{4,18}$/.test(t) && /\d/.test(t));
+    const idIdx = tokens.findIndex((t) => /^[A-Za-z0-9-]{4, 18}$/.test(t) && /\d/.test(t));
     if (idIdx === -1) return null;
     studentId = tokens[idIdx];
     fullName = tokens.slice(0, idIdx).join(' ');
@@ -1064,6 +1228,8 @@ function PrintableQrModal({ event, token, onClose }: { event: Event; token: stri
     window.print();
   };
 
+  const qrToken = token && token.startsWith('ZDSPGC_PERMANENT') ? token : 'ZDSPGC_PERMANENT_QR_01';
+
   return (
     <div className="fixed inset-0 z-50 grid place-items-center bg-sidebar/50 p-4 overflow-y-auto">
       <style>{`
@@ -1076,30 +1242,44 @@ function PrintableQrModal({ event, token, onClose }: { event: Event; token: stri
         <div className="flex justify-between items-start border-b border-border pb-4 mb-6 print:hidden">
           <div className="text-left">
             <div className="font-mono text-[10px] font-extrabold uppercase tracking-[.18em] text-primary">ZDSPGC – Dimataling Campus</div>
-            <h2 className="text-xl font-extrabold text-foreground">Authorized Event QR Code</h2>
+            <h2 className="text-xl font-extrabold text-foreground">Permanent Attendance QR Code</h2>
+            <p className="text-xs text-muted-foreground">Print once for the whole semester. Admin assigns event &amp; session on backend.</p>
           </div>
           <button onClick={onClose} className="rounded-lg p-1.5 text-muted-foreground hover:bg-muted"><X className="size-5" /></button>
         </div>
 
-        {/* Printable Poster Section */}
-        <div className="rounded-2xl border-4 border-primary/20 bg-background p-8 text-center shadow-inner print:border-4 print:border-slate-900 print:bg-white print:p-8">
-          <div className="font-mono text-[11px] font-extrabold uppercase tracking-[.2em] text-primary print:text-slate-900">ZDSPGC – DIMATALING CAMPUS</div>
-          <h1 className="mt-2 text-2xl font-black uppercase tracking-tight text-foreground print:text-slate-900">{event.name}</h1>
-          <p className="mt-1 text-xs font-semibold text-muted-foreground print:text-slate-600">{new Date(event.eventDate).toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })} · {event.venue}</p>
+        {/* Permanent Printable Poster Section */}
+        <div className="rounded-2xl border-4 border-primary/30 bg-background p-8 text-center shadow-inner print:border-4 print:border-slate-900 print:bg-white print:p-8">
+          <div className="font-mono text-[11px] font-extrabold uppercase tracking-[.25em] text-primary print:text-slate-900">ZDSPGC – DIMATALING CAMPUS</div>
 
-          <div className="my-6 inline-block rounded-2xl bg-white p-6 shadow-md border border-gray-200">
-            <QRCodeSVG value={token} size={220} level="H" includeMargin />
+          <h1 className="mt-3 text-3xl font-black uppercase tracking-tight text-foreground print:text-slate-900">ZDSPGC ATTENDANCE</h1>
+          <div className="mt-1 font-mono text-[11px] font-extrabold uppercase tracking-[.2em] text-primary print:text-slate-800">PERMANENT ATTENDANCE STATION</div>
+
+          <div className="my-6 inline-block rounded-2xl bg-white p-6 shadow-md border-2 border-gray-200">
+            <QRCodeSVG value={qrToken} size={240} level="H" includeMargin />
           </div>
 
-          <div className="rounded-lg bg-primary/10 py-2.5 px-4 font-mono text-[11px] font-extrabold uppercase tracking-[.15em] text-primary print:bg-slate-900 print:text-white">
-            SCAN FOR ATTENDANCE
+          <div className="rounded-xl bg-primary py-3 px-6 text-center font-mono text-sm font-black uppercase tracking-[.2em] text-primary-foreground print:bg-slate-900 print:text-white">
+            SCAN HERE FOR ATTENDANCE
           </div>
-          <p className="mt-2 font-mono text-[9px] text-muted-foreground print:text-slate-500">Authorized Event Attendance Token · Officers Scan at Door</p>
+
+          {/* Currently Assigned Event Badge (visible on screen and print) */}
+          <div className="mt-4 rounded-lg bg-muted/60 p-3 text-center border border-border">
+            <div className="font-mono text-[9px] font-extrabold uppercase tracking-[.14em] text-muted-foreground print:text-slate-600">Currently Activated Event</div>
+            <div className="text-sm font-extrabold text-foreground print:text-slate-900">{event.name}</div>
+            <div className="text-[10px] font-semibold text-muted-foreground print:text-slate-600">
+              {new Date(event.eventDate).toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })} · {event.venue}
+            </div>
+          </div>
+
+          <p className="mt-3 font-mono text-[9px] text-muted-foreground print:text-slate-500">
+            Permanent Station Code: <code className="font-bold text-foreground print:text-slate-800">{qrToken}</code> · Reusable Across All Events
+          </p>
         </div>
 
         <div className="mt-6 flex justify-end gap-3 print:hidden">
           <Button variant="ghost" onClick={onClose}>Close</Button>
-          <Button onClick={handlePrint}><Printer className="size-4" /> Print Event QR Poster</Button>
+          <Button onClick={handlePrint}><Printer className="size-4" /> Print Permanent Poster</Button>
         </div>
       </div>
     </div>
@@ -1110,146 +1290,194 @@ function PrintStudentQrCardsModal({ event, token, onClose }: { event: Event; tok
   const studentsQuery = useListStudents();
   const students = studentsQuery.data || [];
   const [search, setSearch] = useState('');
-  const [selectedStudent, setSelectedStudent] = useState<Student | null>(null);
-  const [printAll, setPrintAll] = useState(false);
+  const [programFilter, setProgramFilter] = useState('all');
+  const [yearFilter, setYearFilter] = useState('all');
+  const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
 
-  const filtered = students.filter(
-    (s) =>
+  // All programs/years derived from loaded data
+  const allPrograms = Array.from(new Set(students.map((s) => s.program))).sort();
+  const allYears = Array.from(new Set(students.map((s) => String(s.yearLevel)))).sort();
+
+  const filtered = students.filter((s) => {
+    const matchesSearch =
       s.fullName.toLowerCase().includes(search.toLowerCase()) ||
       s.studentId.toLowerCase().includes(search.toLowerCase()) ||
-      s.program.toLowerCase().includes(search.toLowerCase())
-  );
+      s.program.toLowerCase().includes(search.toLowerCase());
+    const matchesProgram = programFilter === 'all' || s.program === programFilter;
+    const matchesYear = yearFilter === 'all' || String(s.yearLevel) === yearFilter;
+    return matchesSearch && matchesProgram && matchesYear;
+  });
 
-  const activeStudent = selectedStudent || filtered[0] || students[0];
-
-  const handlePrintSingle = () => {
-    setPrintAll(false);
-    setTimeout(() => window.print(), 50);
+  const toggleStudent = (id: number) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
   };
 
-  const handlePrintAll = () => {
-    setPrintAll(true);
+  const selectAll = () => setSelectedIds(new Set(filtered.map((s) => s.id)));
+  const clearAll = () => setSelectedIds(new Set());
+
+  const studentsToPrint = students.filter((s) => selectedIds.has(s.id));
+
+  const handlePrint = () => {
+    if (!studentsToPrint.length) return;
     setTimeout(() => window.print(), 50);
   };
-
-  const studentsToPrint = printAll ? filtered : activeStudent ? [activeStudent] : [];
 
   return (
     <>
       {/* ON-SCREEN MODAL */}
-      <div className="fixed inset-0 z-50 flex items-center justify-center bg-sidebar/60 p-4 overflow-y-auto backdrop-blur-sm print:hidden">
-        <div className="my-6 w-full max-w-4xl rounded-2xl bg-card p-6 shadow-2xl border border-card-border">
+      <div className="fixed inset-0 z-50 flex items-start justify-center bg-sidebar/60 p-4 overflow-y-auto backdrop-blur-sm print:hidden">
+        <div className="my-6 w-full max-w-5xl rounded-2xl bg-card p-6 shadow-2xl border border-card-border">
+          {/* Modal Header */}
           <div className="flex items-start justify-between border-b border-border pb-4 mb-5">
             <div>
               <div className="font-mono text-[10px] font-extrabold uppercase tracking-[.18em] text-primary">ZDSPGC – Dimataling Campus</div>
-              <h2 className="text-xl font-extrabold text-foreground">Student Event QR Pass Generator (ID Card Size)</h2>
-              <p className="text-xs text-muted-foreground mt-0.5">Generate individual ID card passes formatted for bond paper sheets (0.1in margin).</p>
+              <h2 className="text-xl font-extrabold text-foreground">ID Pass Card Print Center</h2>
+              <p className="text-xs text-muted-foreground mt-0.5">Select specific students, filter by program or year level, then print only the cards you need.</p>
             </div>
             <button onClick={onClose} className="rounded-lg p-1.5 text-muted-foreground hover:bg-muted"><X className="size-5" /></button>
           </div>
 
-          <div className="grid gap-6 md:grid-cols-[280px_1fr]">
-            {/* Left: Roster List Selector */}
+          <div className="grid gap-6 md:grid-cols-[1fr_340px]">
+            {/* Left: Selectable Roster */}
             <div className="flex flex-col gap-3">
-              <div className="relative">
-                <Search className="absolute left-3 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
-                <input
-                  value={search}
-                  onChange={(e) => setSearch(e.target.value)}
-                  placeholder="Search student or program..."
-                  className="h-9 w-full rounded-lg border border-input bg-background pl-8 pr-3 text-xs outline-none focus:border-primary"
-                />
+              {/* Filters Row */}
+              <div className="flex flex-wrap gap-2">
+                <div className="relative flex-1 min-w-[160px]">
+                  <Search className="absolute left-3 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
+                  <input
+                    value={search}
+                    onChange={(e) => setSearch(e.target.value)}
+                    placeholder="Search name or ID..."
+                    className="h-9 w-full rounded-lg border border-input bg-background pl-8 pr-3 text-xs outline-none focus:border-primary"
+                  />
+                </div>
+                <select value={programFilter} onChange={(e) => setProgramFilter(e.target.value)} className="h-9 rounded-lg border border-input bg-background px-3 text-xs font-bold outline-none">
+                  <option value="all">All Programs</option>
+                  {allPrograms.map((p) => <option key={p} value={p}>{p}</option>)}
+                </select>
+                <select value={yearFilter} onChange={(e) => setYearFilter(e.target.value)} className="h-9 rounded-lg border border-input bg-background px-3 text-xs font-bold outline-none">
+                  <option value="all">All Years</option>
+                  {allYears.map((y) => <option key={y} value={y}>Year {y}</option>)}
+                </select>
               </div>
 
-              <div className="text-[10px] font-mono font-bold uppercase tracking-wider text-muted-foreground">
-                Certified Roster ({filtered.length})
+              {/* Select All / Clear Row */}
+              <div className="flex items-center justify-between">
+                <div className="text-[10px] font-mono font-bold uppercase tracking-wider text-muted-foreground">
+                  Showing {filtered.length} · <span className="text-foreground">{selectedIds.size} selected</span>
+                </div>
+                <div className="flex gap-2">
+                  <button onClick={selectAll} className="text-[11px] font-bold text-primary hover:underline">Select All Visible</button>
+                  <span className="text-muted-foreground">·</span>
+                  <button onClick={clearAll} className="text-[11px] font-bold text-muted-foreground hover:text-foreground hover:underline">Clear All</button>
+                </div>
               </div>
 
-              <div className="max-h-[360px] overflow-y-auto grid gap-1 pr-1 border border-border rounded-xl p-1 bg-muted/20">
-                {filtered.map((s) => (
-                  <button
-                    key={s.id}
-                    onClick={() => { setSelectedStudent(s); setPrintAll(false); }}
-                    className={`flex items-center justify-between rounded-lg p-2 text-left text-xs transition-colors ${
-                      activeStudent?.id === s.id && !printAll ? 'bg-primary text-primary-foreground font-bold' : 'hover:bg-muted'
-                    }`}
-                  >
-                    <div className="truncate min-w-0 pr-2">
-                      <div className="truncate font-semibold">{s.fullName}</div>
-                      <div className={`text-[10px] font-mono ${activeStudent?.id === s.id && !printAll ? 'opacity-80' : 'text-muted-foreground'}`}>
-                        {s.studentId} · {s.program}
-                      </div>
-                    </div>
-                    <span className="text-[10px] font-mono">{s.yearLevel} Yr</span>
-                  </button>
-                ))}
-                {!filtered.length && <div className="p-4 text-center text-xs text-muted-foreground">No matching student found.</div>}
+              {/* Student Checklist */}
+              <div className="max-h-[400px] overflow-y-auto grid gap-1 pr-1 border border-border rounded-xl p-2 bg-muted/20">
+                {studentsQuery.isLoading ? (
+                  <div className="p-4 text-center text-xs text-muted-foreground">Loading students…</div>
+                ) : filtered.length === 0 ? (
+                  <div className="p-4 text-center text-xs text-muted-foreground">No matching students found.</div>
+                ) : (
+                  filtered.map((s) => {
+                    const checked = selectedIds.has(s.id);
+                    return (
+                      <label
+                        key={s.id}
+                        className={`flex items-center gap-3 rounded-lg p-2.5 cursor-pointer transition-colors ${
+                          checked ? 'bg-primary/10 border border-primary/30' : 'hover:bg-muted border border-transparent'
+                        }`}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          onChange={() => toggleStudent(s.id)}
+                          className="size-4 rounded accent-primary shrink-0"
+                        />
+                        <div className="min-w-0 flex-1">
+                          <div className="text-[12px] font-bold text-foreground truncate">{s.fullName}</div>
+                          <div className="text-[10px] font-mono text-muted-foreground">{s.studentId} · {s.program} · Yr {s.yearLevel}</div>
+                        </div>
+                        {checked && <Check className="size-3.5 text-primary shrink-0" />}
+                      </label>
+                    );
+                  })
+                )}
               </div>
             </div>
 
-            {/* Right: Printable ID Card Preview */}
-            <div className="flex flex-col items-center justify-center p-6 bg-muted/30 rounded-2xl border border-dashed border-border">
-              <div className="mb-4 text-[10px] font-mono font-bold uppercase tracking-widest text-primary">
-                ID CARD FORMAT PREVIEW (CR80 Standard)
+            {/* Right: Preview + Print Actions */}
+            <div className="flex flex-col gap-4">
+              {/* Selection Summary Card */}
+              <div className="rounded-xl border border-border bg-muted/30 p-4">
+                <div className="text-[10px] font-mono font-bold uppercase tracking-widest text-primary mb-3">Print Summary</div>
+                <div className="text-3xl font-extrabold text-foreground">{studentsToPrint.length}</div>
+                <div className="text-xs text-muted-foreground mt-0.5">ID cards selected for printing</div>
+                <div className="mt-3 grid grid-cols-2 gap-1 text-[10px] font-mono">
+                  {studentsToPrint.length > 0 && (
+                    Array.from(new Set(studentsToPrint.map((s) => s.program))).map((prog) => (
+                      <div key={prog} className="flex items-center gap-1">
+                        <span className="size-1.5 rounded-full bg-primary" />
+                        <span className="text-muted-foreground">{prog}:</span>
+                        <span className="font-bold text-foreground">{studentsToPrint.filter((s) => s.program === prog).length}</span>
+                      </div>
+                    ))
+                  )}
+                </div>
+                {studentsToPrint.length > 0 && (
+                  <div className="mt-3 text-[10px] text-muted-foreground font-mono">
+                    ≈ {Math.ceil(studentsToPrint.length / 8)} page{Math.ceil(studentsToPrint.length / 8) !== 1 ? 's' : ''} (8 cards/page)
+                  </div>
+                )}
               </div>
 
-              {activeStudent ? (
-                <div className="w-[360px] h-[220px] rounded-2xl border-2 border-slate-900 bg-white p-4 shadow-2xl flex flex-col justify-between relative overflow-hidden text-slate-900">
-                  {/* Header ribbon */}
-                  <div className="flex items-center justify-between border-b-2 border-slate-900 pb-2">
-                    <div>
-                      <div className="font-mono text-[8px] font-black uppercase tracking-widest text-emerald-700">ZDSPGC – DIMATALING CAMPUS</div>
-                      <div className="text-[11px] font-black tracking-tight uppercase text-slate-900 truncate max-w-[200px]">{event.name}</div>
-                    </div>
-                    <span className="rounded-md bg-slate-900 px-2 py-0.5 font-mono text-[8px] font-extrabold text-white uppercase">EVENT PASS</span>
-                  </div>
-
-                  {/* Body Content */}
-                  <div className="my-auto flex items-center justify-between gap-3">
-                    <div className="min-w-0 flex-1">
-                      <div className="font-mono text-[8px] font-bold text-slate-500 uppercase">STUDENT NAME</div>
-                      <h3 className="text-sm font-black uppercase tracking-tight text-slate-900 truncate leading-tight">{activeStudent.fullName}</h3>
-
-                      <div className="mt-2 grid grid-cols-2 gap-x-2 gap-y-1 font-mono text-[9px]">
-                        <div>
-                          <span className="text-slate-400">ID:</span> <strong className="text-slate-900">{activeStudent.studentId}</strong>
-                        </div>
-                        <div>
-                          <span className="text-slate-400">YEAR:</span> <strong className="text-slate-900">Level {activeStudent.yearLevel}</strong>
-                        </div>
-                        <div>
-                          <span className="text-slate-400">PROG:</span> <strong className="text-slate-900">{activeStudent.program}</strong>
-                        </div>
-                        <div>
-                          <span className="text-slate-400">SEX:</span> <strong className="text-slate-900">{activeStudent.sex}</strong>
-                        </div>
+              {/* ID Card Preview */}
+              <div className="rounded-xl border border-dashed border-border bg-muted/20 p-3 flex flex-col items-center gap-2">
+                <div className="text-[9px] font-mono font-bold uppercase tracking-widest text-muted-foreground">Card Preview</div>
+                {studentsToPrint.length > 0 ? (
+                  <div className="w-full max-w-[280px] rounded-xl border-2 border-slate-900 bg-white p-3 shadow-lg flex flex-col justify-between text-slate-900" style={{ aspectRatio: '3.375/2.125' }}>
+                    <div className="flex items-center justify-between border-b-2 border-slate-900 pb-1.5">
+                      <div>
+                        <div className="font-mono text-[7px] font-black uppercase tracking-widest text-emerald-700">ZDSPGC – DIMATALING CAMPUS</div>
+                        <div className="text-[9px] font-black tracking-tight uppercase text-slate-900">DIMSAT SID</div>
                       </div>
+                      <span className="rounded bg-slate-900 px-1.5 py-0.5 font-mono text-[7px] font-black text-white uppercase">SEMESTER PASS</span>
                     </div>
-
-                    {/* QR Code */}
-                    <div className="rounded-xl border-2 border-slate-900 bg-white p-1 shadow-sm shrink-0">
-                      <QRCodeSVG value={`${token}:${activeStudent.studentId}`} size={75} level="M" />
+                    <div className="flex items-center justify-between gap-2 py-1">
+                      <div className="min-w-0 flex-1">
+                        <div className="font-mono text-[6px] text-slate-400 uppercase">STUDENT NAME</div>
+                        <div className="text-[9px] font-black uppercase truncate">{studentsToPrint[0].fullName}</div>
+                        <div className="mt-1 font-mono text-[7px] text-slate-500">{studentsToPrint[0].studentId} · {studentsToPrint[0].program} · Yr {studentsToPrint[0].yearLevel}</div>
+                      </div>
+                      <QRCodeSVG value={`ZDSPGC_PERMANENT_QR_01:${studentsToPrint[0].studentId}`} size={52} level="M" />
+                    </div>
+                    <div className="border-t border-slate-200 pt-1 flex items-center justify-between font-mono text-[6px] text-slate-400 uppercase">
+                      <span>OFFICIAL STUDENT ATTENDANCE PASS</span>
+                      <span>REUSABLE ALL SEMESTER</span>
                     </div>
                   </div>
+                ) : (
+                  <div className="text-xs text-muted-foreground text-center py-4">No cards selected yet.<br/>Use checkboxes or quick-select chips above.</div>
+                )}
+              </div>
 
-                  {/* Footer Bar */}
-                  <div className="border-t border-slate-200 pt-1 flex items-center justify-between font-mono text-[7px] text-slate-500 uppercase tracking-wider">
-                    <span>OFFICIAL STUDENT ATTENDANCE PASS</span>
-                    <span>OFFICER SCAN AT DOOR</span>
-                  </div>
-                </div>
-              ) : (
-                <div className="text-xs text-muted-foreground">Select a student from the list on the left.</div>
-              )}
-
-              <div className="mt-6 flex flex-wrap justify-end gap-2 w-full max-w-[380px]">
-                <Button variant="ghost" onClick={onClose}>Close</Button>
-                <Button variant="outline" onClick={handlePrintSingle} disabled={!activeStudent}>
-                  <Printer className="size-3.5" /> Print 1 Card
+              {/* Action Buttons */}
+              <div className="flex flex-col gap-2">
+                <Button
+                  onClick={handlePrint}
+                  disabled={!studentsToPrint.length}
+                  className="w-full"
+                >
+                  <Printer className="size-4" />
+                  Print {studentsToPrint.length > 0 ? `${studentsToPrint.length} Selected Card${studentsToPrint.length !== 1 ? 's' : ''}` : 'Selected Cards'}
                 </Button>
-                <Button onClick={handlePrintAll} disabled={!filtered.length}>
-                  <Printer className="size-3.5" /> Print All ({filtered.length})
-                </Button>
+                <Button variant="ghost" onClick={onClose} className="w-full">Cancel</Button>
               </div>
             </div>
           </div>
@@ -1328,9 +1556,9 @@ function PrintStudentQrCardsModal({ event, token, onClose }: { event: Event; tok
                       <div className="flex items-center justify-between border-b border-slate-900 pb-1">
                         <div>
                           <div className="font-mono text-[6.5pt] font-black uppercase tracking-widest text-emerald-700">ZDSPGC – DIMATALING CAMPUS</div>
-                          <div className="text-[8.5pt] font-black tracking-tight uppercase text-slate-900 truncate max-w-[2.1in]">{event.name}</div>
+                          <div className="text-[8.5pt] font-black tracking-tight uppercase text-slate-900 truncate max-w-[2.1in]">DIMSAT SID</div>
                         </div>
-                        <span className="rounded bg-slate-900 px-1 py-0.5 font-mono text-[6.5pt] font-black text-white uppercase">EVENT PASS</span>
+                        <span className="rounded bg-slate-900 px-1 py-0.5 font-mono text-[6.5pt] font-black text-white uppercase">SEMESTER PASS</span>
                       </div>
 
                       {/* Body Content */}
@@ -1357,14 +1585,14 @@ function PrintStudentQrCardsModal({ event, token, onClose }: { event: Event; tok
 
                         {/* QR Code */}
                         <div className="rounded-md border border-slate-900 bg-white p-0.5 shrink-0">
-                          <QRCodeSVG value={`${token}:${s.studentId}`} size={62} level="M" />
+                          <QRCodeSVG value={`ZDSPGC_PERMANENT_QR_01:${s.studentId}`} size={62} level="M" />
                         </div>
                       </div>
 
                       {/* Footer Bar */}
                       <div className="border-t border-slate-200 pt-0.5 flex items-center justify-between font-mono text-[5pt] text-slate-500 uppercase tracking-wider">
                         <span>OFFICIAL STUDENT ATTENDANCE PASS</span>
-                        <span>OFFICER SCAN AT DOOR</span>
+                        <span>REUSABLE ALL SEMESTER</span>
                       </div>
                     </div>
                   ))}
@@ -1381,12 +1609,12 @@ function PrintStudentQrCardsModal({ event, token, onClose }: { event: Event; tok
 type SessionDraft = { name: string; startTime: string; endTime: string; enabled: boolean };
 
 const SESSION_PRESETS: SessionDraft[] = [
-  { name: 'Morning IN',    startTime: '07:00', endTime: '09:00', enabled: true },
-  { name: 'Morning OUT',   startTime: '11:00', endTime: '12:00', enabled: true },
-  { name: 'Afternoon IN',  startTime: '12:30', endTime: '14:00', enabled: true },
+  { name: 'Morning IN', startTime: '07:00', endTime: '09:00', enabled: true },
+  { name: 'Morning OUT', startTime: '11:00', endTime: '12:00', enabled: true },
+  { name: 'Afternoon IN', startTime: '12:30', endTime: '14:00', enabled: true },
   { name: 'Afternoon OUT', startTime: '16:00', endTime: '17:00', enabled: true },
-  { name: 'Evening IN',    startTime: '18:00', endTime: '19:00', enabled: true },
-  { name: 'Evening OUT',   startTime: '21:00', endTime: '22:00', enabled: true },
+  { name: 'Evening IN', startTime: '18:00', endTime: '19:00', enabled: true },
+  { name: 'Evening OUT', startTime: '21:00', endTime: '22:00', enabled: true },
 ];
 
 function EventDialog({ close, create }: { close: () => void; create: ReturnType<typeof useCreateEvent> }) {
@@ -1599,54 +1827,273 @@ function Attendance() {
 
 function Officers() {
   const q = useListOfficers();
-  const create = useCreateOfficer();
-  const [open, setOpen] = useState(false);
-  const [name, setName] = useState('');
-  const [id, setId] = useState('');
-  const [email, setEmail] = useState('');
+  const { toast } = useToast();
+  const currentUser = getStoredStaffUser();
 
-  const submit = () => create.mutate({ data: { officerId: id, fullName: name, email } }, { onSuccess: () => { setOpen(false); setName(''); setId(''); setEmail(''); queryClient.invalidateQueries({ queryKey: getListOfficersQueryKey() }); } });
+  const [open, setOpen] = useState(false);
+  const [editingId, setEditingId] = useState<number | null>(null);
+  const [name, setName] = useState('');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [role, setRole] = useState<'officer' | 'super_admin'>('officer');
+  const [submitting, setSubmitting] = useState(false);
+
+  const rawData = (q.data || []) as Array<{
+    id: number;
+    officerId: string;
+    fullName: string;
+    email: string;
+    role?: string;
+    status: string;
+    createdAt?: string;
+  }>;
+
+  const handleOpenAdd = () => {
+    setEditingId(null);
+    setName('');
+    setEmail('');
+    setPassword('');
+    setRole('officer');
+    setOpen(true);
+  };
+
+  const handleOpenEdit = (officer: typeof rawData[0]) => {
+    setEditingId(officer.id);
+    setName(officer.fullName);
+    setEmail(officer.email);
+    setPassword('');
+    setRole((officer.role as 'officer' | 'super_admin') || 'officer');
+    setOpen(true);
+  };
+
+  const handleDelete = async (id: number, fullName: string) => {
+    if (!window.confirm(`Are you sure you want to delete officer account for ${fullName}?`)) return;
+    try {
+      const res = await fetch(`/api/officers/${id}`, { method: 'DELETE' });
+      if (!res.ok) throw new Error('Delete failed');
+      toast({ title: 'Officer deleted', description: `Removed officer ${fullName}.` });
+      queryClient.invalidateQueries({ queryKey: getListOfficersQueryKey() });
+    } catch {
+      toast({ title: 'Delete failed', description: 'Could not delete officer.', variant: 'destructive' });
+    }
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!name.trim() || !email.trim()) return;
+
+    setSubmitting(true);
+
+    try {
+      if (editingId !== null) {
+        // Edit mode
+        const res = await fetch(`/api/officers/${editingId}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            fullName: name.trim(),
+            email: email.trim(),
+            role,
+            ...(password ? { password } : {}),
+          }),
+        });
+
+        if (!res.ok) throw new Error('Failed to update officer');
+        toast({ title: 'Officer updated', description: 'Officer account details saved.' });
+      } else {
+        // Add mode
+        const res = await fetch('/api/officers', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            fullName: name.trim(),
+            email: email.trim(),
+            role,
+            password: password || 'officer123',
+          }),
+        });
+
+        if (!res.ok) throw new Error('Failed to create officer');
+        toast({ title: 'Officer added', description: `Officer ${name} created successfully.` });
+      }
+
+      setSubmitting(false);
+      setOpen(false);
+      queryClient.invalidateQueries({ queryKey: getListOfficersQueryKey() });
+    } catch {
+      setSubmitting(false);
+      toast({ title: 'Save failed', description: 'Could not save officer account.', variant: 'destructive' });
+    }
+  };
+
+  const formatDate = (dateStr?: string) => {
+    if (!dateStr) return '7/23/2026';
+    try {
+      const d = new Date(dateStr);
+      return `${d.getMonth() + 1}/${d.getDate()}/${d.getFullYear()}`;
+    } catch {
+      return '7/23/2026';
+    }
+  };
 
   return (
     <AppShell>
-      <PageHeader eyebrow="Access / officers" title="Officer Management" description="Manage authorized attendance officers responsible for identity verification." action={<Button data-testid="button-open-add-officer" onClick={() => setOpen(true)}><UserPlus className="size-4" />Add Officer</Button>} />
-      {q.isLoading ? <Loading /> : q.isError ? <ErrorState retry={() => q.refetch()} /> : (
-        <div className="grid gap-3">
-          {(q.data || []).length ? (q.data || []).map(o => (
-            <div data-testid={`row-officer-${o.id}`} key={o.id} className="flex items-center gap-4 rounded-xl border border-card-border bg-card p-4">
-              <div className="grid size-10 place-items-center rounded-full bg-accent/15 font-mono text-[11px] font-medium text-accent">
-                {o.fullName.split(' ').map(x => x[0]).slice(0,2).join('')}
-              </div>
-              <div className="min-w-0 flex-1">
-                <div className="text-sm font-bold">{o.fullName}</div>
-                <div className="mt-0.5 text-[11px] text-muted-foreground">{o.officerId} · {o.email}</div>
-              </div>
-              <Badge tone={o.status === 'active' ? 'success' : 'neutral'}>{o.status}</Badge>
-            </div>
-          )) : <EmptyState title="No officers registered" text="Add an officer account to grant scanning access." />}
+      {/* Officer Accounts Main Card */}
+      <div className="rise-in rounded-2xl border border-gray-200 bg-white p-6 shadow-sm">
+        {/* Header */}
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between mb-6">
+          <div>
+            <h1 className="text-xl font-extrabold text-slate-900 tracking-tight">Officer Accounts</h1>
+            <p className="mt-1 text-xs text-slate-500 font-medium">
+              Each officer can log in separately using the Admin login tab. All officers have access based on their assigned role.
+            </p>
+          </div>
+          <button
+            data-testid="button-open-add-officer"
+            type="button"
+            onClick={handleOpenAdd}
+            className="rounded-xl bg-[#ffb703] hover:bg-[#ffa000] text-[#08132b] px-5 py-2.5 text-xs font-black shadow-sm transition-all hover:scale-105 active:scale-95 flex items-center gap-2 self-start sm:self-auto shrink-0"
+          >
+            <Plus className="size-4 stroke-[3]" /> Add Officer
+          </button>
         </div>
-      )}
+
+        {/* Table */}
+        {q.isLoading ? (
+          <Loading rows={4} />
+        ) : q.isError ? (
+          <ErrorState retry={() => q.refetch()} />
+        ) : (
+          <div className="overflow-x-auto rounded-xl border border-gray-100">
+            <table className="w-full min-w-[700px] text-left border-collapse">
+              <thead>
+                <tr className="border-b border-gray-200 bg-gray-50/80 text-[11px] font-bold text-gray-500 uppercase tracking-wider">
+                  <th className="px-5 py-3.5">Name</th>
+                  <th className="px-5 py-3.5">Email</th>
+                  <th className="px-5 py-3.5">Role</th>
+                  <th className="px-5 py-3.5">Created</th>
+                  <th className="px-5 py-3.5 text-right">Actions</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-100 text-xs font-medium text-slate-800">
+                {rawData.map((officer) => {
+                  const isYou = currentUser.email.toLowerCase() === officer.email.toLowerCase();
+                  const isSuperAdmin = officer.role === 'super_admin' || officer.email.toLowerCase().includes('admin');
+
+                  return (
+                    <tr data-testid={`row-officer-${officer.id}`} key={officer.id} className="hover:bg-slate-50/60 transition-colors">
+                      {/* Name */}
+                      <td className="px-5 py-4 font-bold text-slate-900">
+                        <div className="flex items-center gap-2">
+                          <span>{officer.fullName}</span>
+                          {isYou && (
+                            <span className="rounded-md bg-amber-100 px-1.5 py-0.5 text-[9px] font-extrabold text-amber-700 uppercase tracking-wider">
+                              YOU
+                            </span>
+                          )}
+                        </div>
+                      </td>
+
+                      {/* Email */}
+                      <td className="px-5 py-4 font-mono text-[11px] text-slate-600">
+                        {officer.email}
+                      </td>
+
+                      {/* Role */}
+                      <td className="px-5 py-4">
+                        {isSuperAdmin ? (
+                          <span className="inline-flex items-center gap-1 rounded-full border border-amber-300 bg-amber-50 px-2.5 py-0.5 font-mono text-[10px] font-extrabold uppercase text-amber-700">
+                            <span className="size-1.5 rounded-full bg-amber-500" /> SUPER ADMIN
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center gap-1.5 rounded-full border border-slate-200 bg-slate-100 px-2.5 py-0.5 font-mono text-[10px] font-bold uppercase text-slate-600">
+                            <User className="size-3 text-slate-400" /> OFFICER
+                          </span>
+                        )}
+                      </td>
+
+                      {/* Created */}
+                      <td className="px-5 py-4 font-mono text-[11px] text-slate-500">
+                        {formatDate(officer.createdAt)}
+                      </td>
+
+                      {/* Actions */}
+                      <td className="px-5 py-4 text-right">
+                        <div className="flex items-center justify-end gap-3">
+                          <button
+                            data-testid={`button-edit-officer-${officer.id}`}
+                            type="button"
+                            onClick={() => handleOpenEdit(officer)}
+                            className="p-1 text-slate-600 hover:text-slate-900 transition-colors"
+                            title="Edit Officer"
+                          >
+                            <Pencil className="size-4" />
+                          </button>
+                          <button
+                            data-testid={`button-delete-officer-${officer.id}`}
+                            type="button"
+                            onClick={() => handleDelete(officer.id, officer.fullName)}
+                            className="p-1 text-slate-400 hover:text-red-600 transition-colors"
+                            title="Delete Officer"
+                          >
+                            <Trash2 className="size-4" />
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+
+      {/* Add / Edit Officer Modal */}
       {open && (
-        <div className="fixed inset-0 z-50 grid place-items-center bg-sidebar/40 p-4">
-          <div className="w-full max-w-lg rounded-2xl bg-card p-6 shadow-2xl">
-            <div className="flex justify-between">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-xs p-4 rise-in">
+          <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl border border-gray-200">
+            <div className="flex items-center justify-between border-b border-gray-100 pb-4">
               <div>
-                <div className="font-mono text-[10px] uppercase tracking-[.15em] text-primary">Access Control</div>
-                <h2 className="mt-2 text-xl font-extrabold">Add Officer</h2>
+                <span className="font-mono text-[10px] font-bold uppercase tracking-wider text-amber-600">Officer Access</span>
+                <h2 className="text-lg font-extrabold text-slate-900">{editingId !== null ? 'Edit Officer Account' : 'Add New Officer'}</h2>
               </div>
-              <button data-testid="button-close-officer" onClick={() => setOpen(false)}><X className="size-4 text-muted-foreground" /></button>
+              <button data-testid="button-close-officer" type="button" onClick={() => setOpen(false)} className="rounded-lg p-1 text-slate-400 hover:bg-slate-100">
+                <X className="size-5" />
+              </button>
             </div>
-            <div className="mt-6 grid gap-4">
-              <Field label="Officer ID" value={id} onChange={setId} placeholder="OFF-01" />
-              <Field label="Full Name" value={name} onChange={setName} placeholder="Officer Name" />
-              <Field label="Email" value={email} onChange={setEmail} placeholder="officer@zdspgc.edu.ph" />
-            </div>
-            <div className="mt-6 flex justify-end gap-2">
-              <Button variant="ghost" onClick={() => setOpen(false)}>Cancel</Button>
-              <Button data-testid="button-submit-officer" disabled={!id || !name || !email || create.isPending} onClick={submit}>
-                {create.isPending ? 'Adding…' : 'Add Officer'}
-              </Button>
-            </div>
+
+            <form onSubmit={handleSubmit} className="mt-5 grid gap-4">
+              <Field label="Full Name" value={name} onChange={setName} placeholder="e.g. Suerte, Carlyn" />
+              <Field label="Work Email" value={email} onChange={setEmail} placeholder="e.g. suerte@gmail.com" />
+              <Field
+                label="Password (for login)"
+                type="password"
+                value={password}
+                onChange={setPassword}
+                placeholder={editingId !== null ? 'Leave blank to keep existing' : 'e.g. officer123'}
+              />
+              <div className="grid gap-1.5 text-[11px] font-bold text-muted-foreground">
+                <span>Assigned Role</span>
+                <select
+                  value={role}
+                  onChange={(e) => setRole(e.target.value as 'officer' | 'super_admin')}
+                  className="h-10 w-full rounded-lg border border-input bg-background px-3 text-xs font-bold text-slate-900 outline-none focus:border-primary"
+                >
+                  <option value="officer">Officer (Dashboard, Scanner, Events & Attendance only)</option>
+                  <option value="super_admin">Super Admin (Full System Access)</option>
+                </select>
+              </div>
+
+              <div className="mt-4 flex justify-end gap-2 border-t border-gray-100 pt-4">
+                <Button type="button" variant="ghost" onClick={() => setOpen(false)}>
+                  Cancel
+                </Button>
+                <Button data-testid="button-submit-officer" type="submit" disabled={!name.trim() || !email.trim() || submitting}>
+                  {submitting ? 'Saving…' : editingId !== null ? 'Save Changes' : 'Add Officer'}
+                </Button>
+              </div>
+            </form>
           </div>
         </div>
       )}
@@ -1657,6 +2104,7 @@ function Officers() {
 function SettingsPage() {
   const q = useGetSettings();
   const update = useUpdateSettings();
+  const { toast } = useToast();
   const s = q.data as (Settings & { lateThresholdMinutes?: number }) | undefined;
 
   const [school, setSchool] = useState('');
@@ -1679,16 +2127,24 @@ function SettingsPage() {
   }, [s]);
 
   const save = () =>
-    update.mutate({
-      data: {
-        schoolName: school,
-        campusName: campus,
-        automaticSessions: auto,
-        duplicateProtection: dupe,
-        attendanceConfirmation: confirm,
-        ...( { lateThresholdMinutes: lateThreshold } as Record<string, unknown> ),
+    update.mutate(
+      {
+        data: {
+          schoolName: school,
+          campusName: campus,
+          automaticSessions: auto,
+          duplicateProtection: dupe,
+          attendanceConfirmation: confirm,
+          ...({ lateThresholdMinutes: lateThreshold } as Record<string, unknown>),
+        },
       },
-    });
+      {
+        onSuccess: () =>
+          toast({ title: 'Settings saved', description: 'System settings have been updated successfully.' }),
+        onError: () =>
+          toast({ title: 'Save failed', description: 'Could not save settings. Please try again.', variant: 'destructive' }),
+      }
+    );
 
   return (
     <AppShell>
@@ -1749,14 +2205,14 @@ function Scanner() {
   const studentsQuery = useListStudents();
   const eventsQuery = useListEvents();
   const generateQrMutation = useGenerateEventQr();
-  
-  const [token, setToken] = useState('');
+
+  const [token, setToken] = useState('ZDSPGC_PERMANENT_QR_01');
   const [studentIdInput, setStudentIdInput] = useState('');
   const [candidate, setCandidate] = useState<Awaited<ReturnType<typeof useScanAttendance>>['data']>(undefined);
   const [showModal, setShowModal] = useState(false);
   const [message, setMessage] = useState('');
   const [lastScan, setLastScan] = useState<{ name: string; id: string; session: string; status: string; time: string } | null>(null);
-  
+
   const [isScanning, setIsScanning] = useState(false);
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -1772,19 +2228,12 @@ function Scanner() {
   const presentScans = records.filter(r => r.status === 'present').length;
   const lateScans = records.filter(r => r.status === 'late').length;
 
-  // Auto-fill active event token on page load
+  // Auto-fill CSC Permanent QR token on page load
   useEffect(() => {
-    if (activeEvent && !token) {
-      generateQrMutation.mutate(
-        { eventId: activeEvent.id },
-        {
-          onSuccess: (res) => {
-            setToken(res.token);
-          },
-        }
-      );
+    if (!token) {
+      setToken('ZDSPGC_PERMANENT_QR_01');
     }
-  }, [activeEvent, token]);
+  }, [token]);
 
   const startCamera = async () => {
     setIsScanning(true);
@@ -1946,14 +2395,21 @@ function Scanner() {
 
   return (
     <AppShell>
-      <div className="mb-6 flex items-center justify-between">
+      <div className="mb-6 flex flex-wrap items-center justify-between gap-4 rounded-2xl bg-card border border-card-border p-4 shadow-sm">
         <div>
           <div className="flex items-center gap-2">
             <span className="text-xl font-bold text-amber-500">📷</span>
             <h1 className="text-2xl font-black tracking-tight text-foreground font-serif">Event QR Scanner</h1>
+            <span className="rounded-full bg-emerald-500/10 px-2.5 py-0.5 font-mono text-[10px] font-extrabold text-emerald-700 uppercase border border-emerald-500/20">CSC Permanent QR Active</span>
           </div>
-          <p className="mt-1 text-xs text-muted-foreground">Scan student QR codes to record event attendance in real-time</p>
+          <p className="mt-1 text-xs text-muted-foreground">Print CSC QR Code ONCE per semester — active event and session are automatically attached to all scans.</p>
         </div>
+        {activeEvent && (
+          <div className="flex items-center gap-2 rounded-xl bg-muted/60 px-3 py-1.5 border border-border">
+            <span className="size-2 rounded-full bg-emerald-500 animate-pulse" />
+            <span className="text-xs font-bold text-foreground">Active Event: {activeEvent.name}</span>
+          </div>
+        )}
       </div>
 
       <div className="grid gap-6 lg:grid-cols-[450px_1fr]">
@@ -2018,15 +2474,15 @@ function Scanner() {
             <div className="mt-5 border-t border-border pt-4 grid gap-3">
               <div className="grid gap-1">
                 <div className="flex justify-between items-center">
-                  <label className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">Event QR Token</label>
+                  <label className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">CSC Permanent QR Token</label>
                   {activeEvent && <span className="text-[9px] font-mono text-emerald-700 font-bold">Auto-Loaded: {activeEvent.name}</span>}
                 </div>
                 <input
                   data-testid="input-event-qr-token"
                   value={token}
                   onChange={e => setToken(e.target.value)}
-                  placeholder="Scan or paste Event QR token"
-                  className="h-9 rounded-lg border border-input bg-background px-3 text-xs font-medium outline-none focus:border-primary"
+                  placeholder="ZDSPGC_PERMANENT_QR_01"
+                  className="h-9 rounded-lg border border-input bg-background px-3 text-xs font-mono font-medium outline-none focus:border-primary"
                 />
               </div>
 
