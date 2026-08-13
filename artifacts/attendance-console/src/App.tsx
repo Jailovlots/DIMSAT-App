@@ -634,95 +634,6 @@ function AppHeader({ location, onOpenMobile }: { location: string; onOpenMobile?
                 </div>
               </div>
 
-              {/* Role Switcher choices */}
-              <DropdownMenuLabel className="font-mono text-[10px] uppercase text-muted-foreground px-2 py-1">
-                Access Role
-              </DropdownMenuLabel>
-              <DropdownMenuItem
-                data-testid="kebab-role-admin"
-                onClick={() => handleRoleChange('super_admin')}
-                className="flex items-center gap-2 cursor-pointer font-medium text-xs"
-              >
-                <ShieldCheck className="size-4 text-emerald-500" />
-                <span>Super Admin Mode</span>
-                {user.role === 'super_admin' && <Check className="ml-auto size-3.5 text-emerald-500" />}
-              </DropdownMenuItem>
-              <DropdownMenuItem
-                data-testid="kebab-role-officer"
-                onClick={() => handleRoleChange('officer')}
-                className="flex items-center gap-2 cursor-pointer font-medium text-xs"
-              >
-                <Users className="size-4 text-blue-500" />
-                <span>Officer Mode</span>
-                {user.role === 'officer' && <Check className="ml-auto size-3.5 text-blue-500" />}
-              </DropdownMenuItem>
-              <DropdownMenuItem
-                data-testid="kebab-role-student"
-                onClick={() => handleRoleChange('student')}
-                className="flex items-center gap-2 cursor-pointer font-medium text-xs"
-              >
-                <GraduationCap className="size-4 text-amber-500" />
-                <span>Student Mode</span>
-                {user.role === 'student' && <Check className="ml-auto size-3.5 text-amber-500" />}
-              </DropdownMenuItem>
-
-              <DropdownMenuSeparator className="my-1.5" />
-
-              {/* Choices applying to Officer & Student */}
-              <DropdownMenuLabel className="font-mono text-[10px] uppercase text-muted-foreground px-2 py-1">
-                Officer & Student Choices
-              </DropdownMenuLabel>
-              <DropdownMenuItem
-                data-testid="kebab-nav-scanner"
-                onClick={() => setLocation('/scanner')}
-                className="flex items-center gap-2 cursor-pointer text-xs font-semibold"
-              >
-                <ScanLine className="size-4 text-pink-500" />
-                <span>Live QR Scanner</span>
-              </DropdownMenuItem>
-              <DropdownMenuItem
-                data-testid="kebab-nav-events"
-                onClick={() => setLocation('/events')}
-                className="flex items-center gap-2 cursor-pointer text-xs font-semibold"
-              >
-                <CalendarDays className="size-4 text-purple-500" />
-                <span>Events Schedule</span>
-              </DropdownMenuItem>
-              <DropdownMenuItem
-                data-testid="kebab-nav-attendance"
-                onClick={() => setLocation('/attendance')}
-                className="flex items-center gap-2 cursor-pointer text-xs font-semibold"
-              >
-                <ClipboardCheck className="size-4 text-orange-500" />
-                <span>Attendance Logs</span>
-              </DropdownMenuItem>
-              <DropdownMenuItem
-                data-testid="kebab-nav-students"
-                onClick={() => setLocation('/students')}
-                className="flex items-center gap-2 cursor-pointer text-xs font-semibold"
-              >
-                <GraduationCap className="size-4 text-sky-500" />
-                <span>Certified Students</span>
-              </DropdownMenuItem>
-              <DropdownMenuItem
-                data-testid="kebab-nav-qr-pass"
-                onClick={() => setShowStudentQrModal(true)}
-                className="flex items-center gap-2 cursor-pointer text-xs font-semibold text-primary focus:bg-primary/10"
-              >
-                <QrCode className="size-4 text-primary" />
-                <span>Student Digital QR Pass</span>
-                <span className="ml-auto font-mono text-[9px] bg-primary/15 text-primary px-1.5 py-0.5 rounded font-bold">CARD</span>
-              </DropdownMenuItem>
-              <DropdownMenuItem
-                data-testid="kebab-nav-officers"
-                onClick={() => setLocation('/officers')}
-                className="flex items-center gap-2 cursor-pointer text-xs font-semibold"
-              >
-                <Users className="size-4 text-yellow-500" />
-                <span>Officer Roster</span>
-              </DropdownMenuItem>
-
-              <DropdownMenuSeparator className="my-1.5" />
 
               {/* Preferences & Actions */}
               <DropdownMenuLabel className="font-mono text-[10px] uppercase text-muted-foreground px-2 py-1">
@@ -2072,20 +1983,53 @@ function EventDialog({ close, create }: { close: () => void; create: ReturnType<
 function Attendance() {
   const [search, setSearch] = useState('');
   const [session, setSession] = useState('all');
+  const [yearLevel, setYearLevel] = useState('all');
+  const [program, setProgram] = useState('all');
+
   const q = useListAttendance({ search: search || undefined, session: session === 'all' ? undefined : session });
-  const records = q.data || [];
+  const rawRecords = q.data || [];
+
+  // Filter records by search, session, year level, and program
+  const records = useMemo(() => {
+    return rawRecords.filter(r => {
+      const matchesSearch = !search ||
+        r.studentName.toLowerCase().includes(search.toLowerCase()) ||
+        r.studentId.toLowerCase().includes(search.toLowerCase()) ||
+        r.eventName.toLowerCase().includes(search.toLowerCase()) ||
+        r.officerName.toLowerCase().includes(search.toLowerCase());
+
+      const matchesSession = session === 'all' || r.sessionName === session;
+
+      const rYear = String(r.yearLevel || '').toLowerCase();
+      const matchesYear = yearLevel === 'all' ||
+        rYear.includes(yearLevel.toLowerCase()) ||
+        (yearLevel === '1' && (rYear.includes('1') || rYear.includes('1st'))) ||
+        (yearLevel === '2' && (rYear.includes('2') || rYear.includes('2nd'))) ||
+        (yearLevel === '3' && (rYear.includes('3') || rYear.includes('3rd'))) ||
+        (yearLevel === '4' && (rYear.includes('4') || rYear.includes('4th')));
+
+      const rProg = ((r as unknown as Record<string, unknown>).program as string) || '';
+      const matchesProg = program === 'all' ||
+        rProg.toLowerCase().includes(program.toLowerCase()) ||
+        r.studentName.toLowerCase().includes(program.toLowerCase());
+
+      return matchesSearch && matchesSession && matchesYear && matchesProg;
+    });
+  }, [rawRecords, search, session, yearLevel, program]);
+
   const present = records.filter(x => x.status === 'present').length;
 
   return (
     <AppShell>
+      {/* On-Screen Header */}
       <PageHeader
         eyebrow="Records / attendance"
         title="Attendance Records"
-        description="View and print official attendance records filtered by session, date, or student."
-        action={<Button variant="outline" data-testid="button-print-attendance" onClick={() => window.print()}><Printer className="size-4" />Print Attendance Report</Button>}
+        description="View and print official attendance records filtered by session, date, program, or year level."
       />
 
-      <div className="mb-5 grid gap-3 sm:grid-cols-3">
+      {/* Summary Cards */}
+      <div className="mb-5 grid gap-3 sm:grid-cols-3 print:hidden">
         <div className="rounded-xl border border-card-border bg-card p-4">
           <div className="font-mono text-[10px] text-muted-foreground">TOTAL RECORDS</div>
           <div className="mt-1 text-2xl font-extrabold">{records.length}</div>
@@ -2100,7 +2044,9 @@ function Attendance() {
         </div>
       </div>
 
-      <div className="mb-5 flex flex-col gap-3 sm:flex-row">
+      {/* Search Bar & Filter Controls Row with Print Button beside them */}
+      <div className="mb-5 flex flex-col gap-2.5 lg:flex-row lg:items-center print:hidden">
+        {/* Search Bar Input */}
         <div className="relative flex-1">
           <Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
           <input
@@ -2111,19 +2057,74 @@ function Attendance() {
             className="h-10 w-full rounded-lg border border-input bg-card pl-9 pr-3 text-sm outline-none focus:border-primary"
           />
         </div>
-        <select data-testid="select-attendance-session" value={session} onChange={e => setSession(e.target.value)} className="h-10 rounded-lg border border-input bg-card px-3 text-xs font-bold">
-          <option value="all">All Sessions</option>
-          <option value="Morning IN">Morning IN</option>
-          <option value="Morning OUT">Morning OUT</option>
-          <option value="Afternoon IN">Afternoon IN</option>
-          <option value="Afternoon OUT">Afternoon OUT</option>
-          <option value="Evening IN">Evening IN</option>
-          <option value="Evening OUT">Evening OUT</option>
-        </select>
+
+        {/* Filter Dropdowns & Print Button Beside Search Bar */}
+        <div className="flex flex-wrap items-center gap-2">
+          {/* Session Select */}
+          <select
+            data-testid="select-attendance-session"
+            value={session}
+            onChange={e => setSession(e.target.value)}
+            className="h-10 rounded-lg border border-input bg-card px-3 text-xs font-bold outline-none focus:border-primary cursor-pointer"
+          >
+            <option value="all">All Sessions</option>
+            <option value="Morning IN">Morning IN</option>
+            <option value="Morning OUT">Morning OUT</option>
+            <option value="Afternoon IN">Afternoon IN</option>
+            <option value="Afternoon OUT">Afternoon OUT</option>
+            <option value="Evening IN">Evening IN</option>
+            <option value="Evening OUT">Evening OUT</option>
+          </select>
+
+          {/* Year Level Select */}
+          <select
+            data-testid="select-attendance-year"
+            value={yearLevel}
+            onChange={e => setYearLevel(e.target.value)}
+            className="h-10 rounded-lg border border-input bg-card px-3 text-xs font-bold outline-none focus:border-primary cursor-pointer"
+          >
+            <option value="all">All Year Levels</option>
+            <option value="1">1st Year</option>
+            <option value="2">2nd Year</option>
+            <option value="3">3rd Year</option>
+            <option value="4">4th Year</option>
+          </select>
+
+          {/* Program Select */}
+          <select
+            data-testid="select-attendance-program"
+            value={program}
+            onChange={e => setProgram(e.target.value)}
+            className="h-10 rounded-lg border border-input bg-card px-3 text-xs font-bold outline-none focus:border-primary cursor-pointer"
+          >
+            <option value="all">All Programs</option>
+            <option value="BSIS">BSIS</option>
+            <option value="BSED">BSED</option>
+            <option value="BEED">BEED</option>
+            <option value="BSHM">BSHM</option>
+            <option value="BSBA">BSBA</option>
+          </select>
+
+          {/* Print Attendance Report Button placed right beside the search bar & filters */}
+          <Button
+            variant="primary"
+            data-testid="button-print-attendance"
+            onClick={() => window.print()}
+            className="h-10 px-4 shrink-0 shadow-sm"
+          >
+            <Printer className="size-4" />
+            Print Report
+          </Button>
+        </div>
       </div>
 
-      <div className="overflow-hidden rounded-xl border border-card-border bg-card">
-        {q.isLoading ? <div className="p-5"><Loading /></div> : q.isError ? <div className="p-5"><ErrorState retry={() => q.refetch()} /></div> : records.length ? (
+      {/* On-Screen Records Table */}
+      <div className="overflow-hidden rounded-xl border border-card-border bg-card print:hidden">
+        {q.isLoading ? (
+          <div className="p-5"><Loading /></div>
+        ) : q.isError ? (
+          <div className="p-5"><ErrorState retry={() => q.refetch()} /></div>
+        ) : records.length ? (
           <div className="overflow-x-auto">
             <table className="w-full min-w-[850px] text-left">
               <thead className="border-b border-border bg-muted/45 font-mono text-[10px] uppercase tracking-[.1em] text-muted-foreground">
@@ -2150,7 +2151,146 @@ function Attendance() {
               </tbody>
             </table>
           </div>
-        ) : <div className="p-5"><EmptyState title="No attendance records" text="Scanned student attendances will appear here." /></div>}
+        ) : (
+          <div className="p-5"><EmptyState title="No attendance records" text="Scanned student attendances will appear here." /></div>
+        )}
+      </div>
+
+      {/* DEDICATED OFFICIAL PRINT REPORT DOCUMENT (visible ONLY when printing) */}
+      <div className="hidden print:block print:fixed print:inset-0 print:z-[9999] print:bg-white print:p-4">
+        <style>{`
+          @page {
+            size: letter portrait;
+            margin: 0.3in;
+          }
+          @media print {
+            body * {
+              visibility: hidden !important;
+            }
+            .print-report-sheet, .print-report-sheet * {
+              visibility: visible !important;
+            }
+            .print-report-sheet {
+              position: absolute !important;
+              left: 0 !important;
+              top: 0 !important;
+              width: 100% !important;
+              background: white !important;
+              color: #0f172a !important;
+              font-family: Arial, Helvetica, sans-serif !important;
+            }
+          }
+        `}</style>
+
+        <div className="print-report-sheet text-slate-900">
+          {/* School Letterhead */}
+          <div className="flex items-center justify-between border-b-2 border-slate-900 pb-3 mb-4">
+            <div className="flex items-center gap-3">
+              <div className="size-12 rounded-full border border-slate-300 p-0.5 flex items-center justify-center shrink-0">
+                <img src="/zdspgc-logo.png" alt="ZDSPGC Seal" className="size-full object-contain rounded-full" />
+              </div>
+              <div>
+                <div className="font-mono text-[9px] font-black uppercase tracking-widest text-slate-700">
+                  ZAMBOANGA DEL SUR PROVINCIAL GOVERNMENT COLLEGE
+                </div>
+                <h1 className="text-base font-black uppercase tracking-tight text-slate-900">
+                  DIMATALING CAMPUS · OFFICIAL ATTENDANCE REPORT
+                </h1>
+                <div className="text-[9.5px] font-semibold text-slate-600">
+                  Office of Student Affairs & Services · Certified Attendance Roster
+                </div>
+              </div>
+            </div>
+            <div className="text-right font-mono text-[8.5px] text-slate-600">
+              <div>Date Generated: {new Date().toLocaleDateString('en-PH', { month: 'short', day: 'numeric', year: 'numeric' })}</div>
+              <div>Time: {new Date().toLocaleTimeString('en-PH', { hour: '2-digit', minute: '2-digit' })}</div>
+              <div className="font-bold text-emerald-800">STATUS: OFFICIAL RECORD</div>
+            </div>
+          </div>
+
+          {/* Filter & Metric Summary Box */}
+          <div className="mb-4 rounded-lg border border-slate-300 bg-slate-50 p-2.5 text-xs grid grid-cols-4 gap-2">
+            <div>
+              <span className="font-mono text-[8.5px] text-slate-500 block uppercase">Session Filter</span>
+              <strong className="text-slate-900">{session === 'all' ? 'All Sessions' : session}</strong>
+            </div>
+            <div>
+              <span className="font-mono text-[8.5px] text-slate-500 block uppercase">Program Filter</span>
+              <strong className="text-slate-900">{program === 'all' ? 'All Programs' : program}</strong>
+            </div>
+            <div>
+              <span className="font-mono text-[8.5px] text-slate-500 block uppercase">Year Level Filter</span>
+              <strong className="text-slate-900">{yearLevel === 'all' ? 'All Year Levels' : `Year ${yearLevel}`}</strong>
+            </div>
+            <div>
+              <span className="font-mono text-[8.5px] text-slate-500 block uppercase">Verified Present</span>
+              <strong className="text-emerald-800 font-black">{present} / {records.length} Records</strong>
+            </div>
+          </div>
+
+          {/* Official Clean Table of Students with Records */}
+          <table className="w-full text-left border-collapse text-[9.5px]">
+            <thead>
+              <tr className="border-y-2 border-slate-900 bg-slate-100 font-mono uppercase text-slate-800">
+                <th className="py-2 px-1.5 w-7 text-center">#</th>
+                <th className="py-2 px-2 w-28">Student ID</th>
+                <th className="py-2 px-2">Student Name</th>
+                <th className="py-2 px-2 w-24">Program & Year</th>
+                <th className="py-2 px-2">Event & Session</th>
+                <th className="py-2 px-2 w-36">Time Scanned</th>
+                <th className="py-2 px-2">Verified Officer</th>
+                <th className="py-2 px-2 w-16 text-center">Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              {records.length > 0 ? (
+                records.map((r, idx) => (
+                  <tr key={r.id} className="border-b border-slate-200">
+                    <td className="py-1.5 px-1.5 text-center font-mono text-slate-500">{idx + 1}</td>
+                    <td className="py-1.5 px-2 font-mono font-bold text-slate-900">{r.studentId}</td>
+                    <td className="py-1.5 px-2 font-bold text-slate-900">{r.studentName}</td>
+                    <td className="py-1.5 px-2 font-mono font-semibold text-slate-700">
+                      {((r as unknown as Record<string, unknown>).program as string) || 'BSIS'} - Yr {r.yearLevel}
+                    </td>
+                    <td className="py-1.5 px-2">
+                      <span className="font-semibold text-slate-900">{r.eventName}</span>
+                      <span className="block text-[8.5px] font-bold text-emerald-800">{r.sessionName}</span>
+                    </td>
+                    <td className="py-1.5 px-2 font-mono text-slate-700">{new Date(r.scannedAt).toLocaleString()}</td>
+                    <td className="py-1.5 px-2 text-slate-800">{r.officerName}</td>
+                    <td className="py-1.5 px-2 text-center">
+                      <span className="font-mono text-[7.5px] font-bold uppercase text-emerald-800 bg-emerald-100 px-1.5 py-0.5 rounded">
+                        {r.status}
+                      </span>
+                    </td>
+                  </tr>
+                ))
+              ) : (
+                <tr>
+                  <td colSpan={8} className="py-8 text-center text-slate-500 italic">
+                    No verified attendance records match the selected filter criteria.
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+
+          {/* Official Signatures Section */}
+          <div className="mt-10 pt-4 border-t border-slate-300 grid grid-cols-2 gap-12 text-xs">
+            <div>
+              <div className="text-[9.5px] font-mono text-slate-500 uppercase">Prepared & Verified By:</div>
+              <div className="mt-7 border-b border-slate-900 w-64" />
+              <div className="mt-1 font-bold text-slate-900">Attendance Officer / Staff</div>
+              <div className="text-[9.5px] text-slate-500 font-mono">ZDSPGC Dimataling Campus</div>
+            </div>
+            <div>
+              <div className="text-[9.5px] font-mono text-slate-500 uppercase">Certified Correct & Approved:</div>
+              <div className="mt-7 border-b border-slate-900 w-64" />
+              <div className="mt-1 font-bold text-slate-900">Campus Registrar / Administrator</div>
+              <div className="text-[9.5px] text-slate-500 font-mono">ZDSPGC Dimataling Campus</div>
+            </div>
+          </div>
+        </div>
       </div>
     </AppShell>
   );

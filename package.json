@@ -9,7 +9,8 @@
     "dev:console": "pnpm --filter @workspace/attendance-console run dev",
     "dev:student": "pnpm --filter @workspace/student-attendance run dev",
     "start": "pnpm --filter @workspace/api-server run start",
-    "build": "pnpm run typecheck && pnpm -r --if-present run build",
+    "build:student-web": "pnpm --filter @workspace/student-attendance run build:web",
+    "build": "pnpm run typecheck && pnpm run build:student-web && pnpm -r --if-present run build",
     "typecheck:libs": "tsc --build",
     "typecheck": "pnpm run typecheck:libs && pnpm -r --filter \"./artifacts/**\" --filter \"./scripts\" --if-present run typecheck"
   },

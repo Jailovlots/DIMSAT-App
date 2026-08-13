@@ -66,11 +66,26 @@ const staticPath = fs.existsSync(consoleDistPath)
   ? fallbackConsoleDistPath
   : null;
 
+// Serve the student-attendance Expo web export under /student
+const studentDistPath = path.resolve(currentDir, "../../student-attendance/dist");
+if (fs.existsSync(studentDistPath)) {
+  app.use("/student", express.static(studentDistPath));
+  // SPA fallback — deep links inside the student app all resolve to its index.html
+  app.get("/student/{*path}", (_req, res, next) => {
+    const indexPath = path.join(studentDistPath, "index.html");
+    if (fs.existsSync(indexPath)) {
+      res.sendFile(indexPath);
+    } else {
+      next();
+    }
+  });
+}
+
 if (staticPath) {
   app.use(express.static(staticPath));
   // Express 5 / path-to-regexp v8 requires named wildcards — "/{*path}" instead of "*"
   app.get("/{*path}", (req, res, next) => {
-    if (req.path.startsWith("/api")) return next();
+    if (req.path.startsWith("/api") || req.path.startsWith("/student")) return next();
     const indexPath = path.join(staticPath, "index.html");
     if (fs.existsSync(indexPath)) {
       res.sendFile(indexPath);
