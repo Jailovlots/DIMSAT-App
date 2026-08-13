@@ -1163,9 +1163,10 @@ function EditEventDialog({ event, close, refetch }: { event: Event; close: () =>
   };
 
   return (
-    <div className="fixed inset-0 z-50 grid place-items-center bg-sidebar/40 p-4">
-      <div className="w-full max-w-lg rounded-2xl border border-card-border bg-card p-6 shadow-2xl">
-        <div className="flex justify-between items-start">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-sidebar/40 p-4">
+      <div className="w-full max-w-lg flex flex-col max-h-[90vh] rounded-2xl border border-card-border bg-card shadow-2xl">
+        {/* Header */}
+        <div className="flex justify-between items-start border-b border-border px-6 pt-6 pb-4 shrink-0">
           <div>
             <div className="font-mono text-[10px] uppercase tracking-[.15em] text-primary">Event Setup</div>
             <h2 className="mt-1 text-xl font-extrabold">Edit Event &amp; Sessions</h2>
@@ -1173,7 +1174,8 @@ function EditEventDialog({ event, close, refetch }: { event: Event; close: () =>
           <button onClick={close} className="rounded-md p-1 text-muted-foreground hover:bg-muted"><X className="size-4" /></button>
         </div>
 
-        <div className="mt-5 grid gap-4">
+        {/* Scrollable Body */}
+        <div className="overflow-y-auto px-6 py-4 flex-1 grid gap-4">
           <Field label="Event Name" value={name} onChange={setName} placeholder="Annual Acquaintance Party 2026" />
           <div className="grid grid-cols-2 gap-3">
             <Field label="Venue" value={venue} onChange={setVenue} placeholder="School Gymnasium" />
@@ -1239,7 +1241,8 @@ function EditEventDialog({ event, close, refetch }: { event: Event; close: () =>
           </div>
         </div>
 
-        <div className="mt-6 flex justify-end gap-2">
+        {/* Footer */}
+        <div className="flex justify-end gap-2 px-6 py-4 border-t border-border shrink-0">
           <Button variant="ghost" onClick={close}>Cancel</Button>
           <Button disabled={!name || !date || !venue || isSaving} onClick={submit}>
             {isSaving ? 'Saving Changes…' : 'Save Event Changes'}
@@ -1258,15 +1261,16 @@ function PrintableQrModal({ event, token, onClose }: { event: Event; token: stri
   const qrToken = token && token.startsWith('ZDSPGC_PERMANENT') ? token : 'ZDSPGC_PERMANENT_QR_01';
 
   return (
-    <div className="fixed inset-0 z-50 grid place-items-center bg-sidebar/50 p-4 overflow-y-auto">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-sidebar/50 p-4 print:p-0 print:bg-white print:static print:z-auto">
       <style>{`
         @page {
           size: letter portrait;
           margin: 0.1in;
         }
       `}</style>
-      <div className="w-full max-w-lg rounded-2xl bg-card p-8 shadow-2xl border border-card-border text-center print:border-0 print:shadow-none print:p-0">
-        <div className="flex justify-between items-start border-b border-border pb-4 mb-6 print:hidden">
+      <div className="w-full max-w-lg flex flex-col max-h-[90vh] rounded-2xl bg-card shadow-2xl border border-card-border print:border-0 print:shadow-none print:max-h-none print:w-full print:max-w-none">
+        {/* Header */}
+        <div className="flex justify-between items-start border-b border-border px-6 pt-6 pb-4 shrink-0 print:hidden">
           <div className="text-left">
             <div className="font-mono text-[10px] font-extrabold uppercase tracking-[.18em] text-primary">ZDSPGC – Dimataling Campus</div>
             <h2 className="text-xl font-extrabold text-foreground">Permanent Attendance QR Code</h2>
@@ -1275,36 +1279,40 @@ function PrintableQrModal({ event, token, onClose }: { event: Event; token: stri
           <button onClick={onClose} className="rounded-lg p-1.5 text-muted-foreground hover:bg-muted"><X className="size-5" /></button>
         </div>
 
-        {/* Permanent Printable Poster Section */}
-        <div className="rounded-2xl border-4 border-primary/30 bg-background p-8 text-center shadow-inner print:border-4 print:border-slate-900 print:bg-white print:p-8">
-          <div className="font-mono text-[11px] font-extrabold uppercase tracking-[.25em] text-primary print:text-slate-900">ZDSPGC – DIMATALING CAMPUS</div>
+        {/* Scrollable Body */}
+        <div className="overflow-y-auto px-6 py-4 text-center flex-1 print:p-0 print:overflow-visible">
+          {/* Permanent Printable Poster Section */}
+          <div className="rounded-2xl border-4 border-primary/30 bg-background p-5 sm:p-6 text-center shadow-inner print:border-4 print:border-slate-900 print:bg-white print:p-8">
+            <div className="font-mono text-[10px] sm:text-[11px] font-extrabold uppercase tracking-[.25em] text-primary print:text-slate-900">ZDSPGC – DIMATALING CAMPUS</div>
 
-          <h1 className="mt-3 text-3xl font-black uppercase tracking-tight text-foreground print:text-slate-900">ZDSPGC ATTENDANCE</h1>
-          <div className="mt-1 font-mono text-[11px] font-extrabold uppercase tracking-[.2em] text-primary print:text-slate-800">PERMANENT ATTENDANCE STATION</div>
+            <h1 className="mt-2 text-2xl sm:text-3xl font-black uppercase tracking-tight text-foreground print:text-slate-900">ZDSPGC ATTENDANCE</h1>
+            <div className="mt-1 font-mono text-[10px] font-extrabold uppercase tracking-[.2em] text-primary print:text-slate-800">PERMANENT ATTENDANCE STATION</div>
 
-          <div className="my-6 inline-block rounded-2xl bg-white p-6 shadow-md border-2 border-gray-200">
-            <QRCodeSVG value={qrToken} size={240} level="H" includeMargin />
-          </div>
-
-          <div className="rounded-xl bg-primary py-3 px-6 text-center font-mono text-sm font-black uppercase tracking-[.2em] text-primary-foreground print:bg-slate-900 print:text-white">
-            SCAN HERE FOR ATTENDANCE
-          </div>
-
-          {/* Currently Assigned Event Badge (visible on screen and print) */}
-          <div className="mt-4 rounded-lg bg-muted/60 p-3 text-center border border-border">
-            <div className="font-mono text-[9px] font-extrabold uppercase tracking-[.14em] text-muted-foreground print:text-slate-600">Currently Activated Event</div>
-            <div className="text-sm font-extrabold text-foreground print:text-slate-900">{event.name}</div>
-            <div className="text-[10px] font-semibold text-muted-foreground print:text-slate-600">
-              {new Date(event.eventDate).toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })} · {event.venue}
+            <div className="my-4 inline-block rounded-2xl bg-white p-4 sm:p-5 shadow-md border-2 border-gray-200">
+              <QRCodeSVG value={qrToken} size={180} level="H" includeMargin className="size-[160px] sm:size-[180px]" />
             </div>
-          </div>
 
-          <p className="mt-3 font-mono text-[9px] text-muted-foreground print:text-slate-500">
-            Permanent Station Code: <code className="font-bold text-foreground print:text-slate-800">{qrToken}</code> · Reusable Across All Events
-          </p>
+            <div className="rounded-xl bg-primary py-2.5 px-4 text-center font-mono text-xs sm:text-sm font-black uppercase tracking-[.2em] text-primary-foreground print:bg-slate-900 print:text-white">
+              SCAN HERE FOR ATTENDANCE
+            </div>
+
+            {/* Currently Assigned Event Badge */}
+            <div className="mt-3 rounded-lg bg-muted/60 p-2.5 text-center border border-border">
+              <div className="font-mono text-[9px] font-extrabold uppercase tracking-[.14em] text-muted-foreground print:text-slate-600">Currently Activated Event</div>
+              <div className="text-sm font-extrabold text-foreground print:text-slate-900">{event.name}</div>
+              <div className="text-[10px] font-semibold text-muted-foreground print:text-slate-600">
+                {new Date(event.eventDate).toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })} · {event.venue}
+              </div>
+            </div>
+
+            <p className="mt-2 font-mono text-[9px] text-muted-foreground print:text-slate-500">
+              Permanent Station Code: <code className="font-bold text-foreground print:text-slate-800">{qrToken}</code> · Reusable Across All Events
+            </p>
+          </div>
         </div>
 
-        <div className="mt-6 flex justify-end gap-3 print:hidden">
+        {/* Footer */}
+        <div className="flex justify-end gap-3 px-6 py-4 border-t border-border shrink-0 print:hidden">
           <Button variant="ghost" onClick={onClose}>Close</Button>
           <Button onClick={handlePrint}><Printer className="size-4" /> Print Permanent Poster</Button>
         </div>
@@ -1357,10 +1365,10 @@ function PrintStudentQrCardsModal({ event, token, onClose }: { event: Event; tok
   return (
     <>
       {/* ON-SCREEN MODAL */}
-      <div className="fixed inset-0 z-50 flex items-start justify-center bg-sidebar/60 p-4 overflow-y-auto backdrop-blur-sm print:hidden">
-        <div className="my-6 w-full max-w-5xl rounded-2xl bg-card p-6 shadow-2xl border border-card-border">
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-sidebar/60 p-4 backdrop-blur-sm print:hidden">
+        <div className="w-full max-w-5xl max-h-[90vh] flex flex-col rounded-2xl bg-card shadow-2xl border border-card-border p-6">
           {/* Modal Header */}
-          <div className="flex items-start justify-between border-b border-border pb-4 mb-5">
+          <div className="flex items-start justify-between border-b border-border pb-4 mb-4 shrink-0">
             <div>
               <div className="font-mono text-[10px] font-extrabold uppercase tracking-[.18em] text-primary">ZDSPGC – Dimataling Campus</div>
               <h2 className="text-xl font-extrabold text-foreground">ID Pass Card Print Center</h2>
@@ -1369,7 +1377,7 @@ function PrintStudentQrCardsModal({ event, token, onClose }: { event: Event; tok
             <button onClick={onClose} className="rounded-lg p-1.5 text-muted-foreground hover:bg-muted"><X className="size-5" /></button>
           </div>
 
-          <div className="grid gap-6 md:grid-cols-[1fr_340px]">
+          <div className="overflow-y-auto flex-1 pr-1 grid gap-6 md:grid-cols-[1fr_340px]">
             {/* Left: Selectable Roster */}
             <div className="flex flex-col gap-3">
               {/* Filters Row */}
@@ -1680,9 +1688,10 @@ function EventDialog({ close, create }: { close: () => void; create: ReturnType<
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-sidebar/40 p-4 overflow-y-auto">
-      <div className="my-4 w-full max-w-xl rounded-2xl bg-card p-6 shadow-2xl">
-        <div className="flex justify-between">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-sidebar/40 p-4">
+      <div className="w-full max-w-xl flex flex-col max-h-[90vh] rounded-2xl bg-card shadow-2xl border border-card-border">
+        {/* Header */}
+        <div className="flex justify-between items-start border-b border-border px-6 pt-6 pb-4 shrink-0">
           <div>
             <div className="font-mono text-[10px] uppercase tracking-[.15em] text-primary">Event Setup</div>
             <h2 className="mt-2 text-xl font-extrabold">Create New Event</h2>
@@ -1690,71 +1699,73 @@ function EventDialog({ close, create }: { close: () => void; create: ReturnType<
           <button data-testid="button-close-event" onClick={close}><X className="size-4 text-muted-foreground" /></button>
         </div>
 
-        <div className="mt-6 grid gap-4">
+        {/* Scrollable Body */}
+        <div className="overflow-y-auto px-6 py-4 flex-1 grid gap-4">
           <Field label="Event Name" value={name} onChange={setName} placeholder="e.g. Acquaintance Party 2026" />
           <Field label="Venue" value={venue} onChange={setVenue} placeholder="School Gymnasium" />
           <Field label="Event Date" value={date} onChange={setDate} type="date" />
           <Field label="Description" value={description} onChange={setDescription} placeholder="Brief event description" />
-        </div>
 
-        {/* Manual Sessions Builder */}
-        <div className="mt-6">
-          <div className="mb-3 flex items-center justify-between">
-            <div>
-              <div className="text-xs font-extrabold">Attendance Sessions</div>
-              <p className="text-[11px] text-muted-foreground">Add only the sessions your event needs.</p>
-            </div>
-            <div className="flex gap-2">
-              <button
-                type="button"
-                onClick={applyPreset}
-                className="rounded-md border border-border px-2.5 py-1.5 text-[10px] font-bold text-muted-foreground hover:bg-muted"
-              >Use Full-Day Preset (6)</button>
-              <button
-                type="button"
-                onClick={addSession}
-                className="inline-flex items-center gap-1 rounded-md bg-primary/10 px-2.5 py-1.5 text-[10px] font-bold text-primary hover:bg-primary/20"
-              ><Plus className="size-3" />Add Session</button>
-            </div>
-          </div>
-
-          <div className="grid gap-2 max-h-60 overflow-y-auto pr-1">
-            {sessions.map((s, i) => (
-              <div key={i} className="flex items-center gap-2 rounded-lg border border-input bg-background p-2">
-                <input
-                  data-testid={`input-session-name-${i}`}
-                  value={s.name}
-                  onChange={e => updateSession(i, 'name', e.target.value)}
-                  placeholder="Session name (e.g. Morning IN)"
-                  className="h-8 min-w-0 flex-1 rounded-md border-0 bg-transparent px-2 text-[12px] font-semibold outline-none placeholder:text-muted-foreground/50 focus:ring-0"
-                />
-                <input
-                  type="time"
-                  value={s.startTime}
-                  onChange={e => updateSession(i, 'startTime', e.target.value)}
-                  className="h-8 w-[90px] rounded-md border border-input bg-muted px-2 text-[11px] outline-none focus:border-primary"
-                />
-                <span className="text-[10px] text-muted-foreground">–</span>
-                <input
-                  type="time"
-                  value={s.endTime}
-                  onChange={e => updateSession(i, 'endTime', e.target.value)}
-                  className="h-8 w-[90px] rounded-md border border-input bg-muted px-2 text-[11px] outline-none focus:border-primary"
-                />
-                <button type="button" onClick={() => removeSession(i)} className="rounded-md p-1 text-muted-foreground hover:bg-red-500/10 hover:text-red-500">
-                  <X className="size-3.5" />
-                </button>
+          {/* Manual Sessions Builder */}
+          <div className="mt-2">
+            <div className="mb-3 flex items-center justify-between">
+              <div>
+                <div className="text-xs font-extrabold">Attendance Sessions</div>
+                <p className="text-[11px] text-muted-foreground">Add only the sessions your event needs.</p>
               </div>
-            ))}
-          </div>
-          {sessions.length === 0 && (
-            <div className="rounded-lg border border-dashed border-border p-4 text-center text-[11px] text-muted-foreground">
-              No sessions added. Click <strong>Add Session</strong> or use the full-day preset.
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={applyPreset}
+                  className="rounded-md border border-border px-2.5 py-1.5 text-[10px] font-bold text-muted-foreground hover:bg-muted"
+                >Use Full-Day Preset (6)</button>
+                <button
+                  type="button"
+                  onClick={addSession}
+                  className="inline-flex items-center gap-1 rounded-md bg-primary/10 px-2.5 py-1.5 text-[10px] font-bold text-primary hover:bg-primary/20"
+                ><Plus className="size-3" />Add Session</button>
+              </div>
             </div>
-          )}
+
+            <div className="grid gap-2 max-h-52 overflow-y-auto pr-1">
+              {sessions.map((s, i) => (
+                <div key={i} className="flex items-center gap-2 rounded-lg border border-input bg-background p-2">
+                  <input
+                    data-testid={`input-session-name-${i}`}
+                    value={s.name}
+                    onChange={e => updateSession(i, 'name', e.target.value)}
+                    placeholder="Session name (e.g. Morning IN)"
+                    className="h-8 min-w-0 flex-1 rounded-md border-0 bg-transparent px-2 text-[12px] font-semibold outline-none placeholder:text-muted-foreground/50 focus:ring-0"
+                  />
+                  <input
+                    type="time"
+                    value={s.startTime}
+                    onChange={e => updateSession(i, 'startTime', e.target.value)}
+                    className="h-8 w-[90px] rounded-md border border-input bg-muted px-2 text-[11px] outline-none focus:border-primary"
+                  />
+                  <span className="text-[10px] text-muted-foreground">–</span>
+                  <input
+                    type="time"
+                    value={s.endTime}
+                    onChange={e => updateSession(i, 'endTime', e.target.value)}
+                    className="h-8 w-[90px] rounded-md border border-input bg-muted px-2 text-[11px] outline-none focus:border-primary"
+                  />
+                  <button type="button" onClick={() => removeSession(i)} className="rounded-md p-1 text-muted-foreground hover:bg-red-500/10 hover:text-red-500">
+                    <X className="size-3.5" />
+                  </button>
+                </div>
+              ))}
+            </div>
+            {sessions.length === 0 && (
+              <div className="rounded-lg border border-dashed border-border p-4 text-center text-[11px] text-muted-foreground">
+                No sessions added. Click <strong>Add Session</strong> or use the full-day preset.
+              </div>
+            )}
+          </div>
         </div>
 
-        <div className="mt-6 flex justify-end gap-2">
+        {/* Footer */}
+        <div className="flex justify-end gap-2 px-6 py-4 border-t border-border shrink-0">
           <Button variant="ghost" onClick={close}>Cancel</Button>
           <Button data-testid="button-submit-event" disabled={!name || !date || !venue || !valid || create.isPending} onClick={submit}>
             {create.isPending ? 'Creating…' : `Create Event (${sessions.length} session${sessions.length !== 1 ? 's' : ''})`}
