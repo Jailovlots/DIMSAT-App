@@ -1,10 +1,19 @@
-// API base URL – update this to match your server's address
-// On web (Expo Web): the admin console API runs on port 5000
-// On Android/iOS physical device: replace with your server's LAN IP, e.g. http://192.168.1.100:5000
-const DEV_API_BASE =
-  typeof window !== 'undefined' && window.location?.hostname
-    ? `${window.location.protocol}//${window.location.hostname}:5000`
-    : 'http://localhost:5000';
+// API base URL configuration
+// Deployed server: https://dimsat-app.onrender.com
+const getApiBase = () => {
+  if (process.env.EXPO_PUBLIC_API_URL) {
+    return process.env.EXPO_PUBLIC_API_URL;
+  }
+  if (typeof window !== 'undefined' && window.location) {
+    const { protocol, hostname, origin } = window.location;
+    if (hostname === 'localhost' || hostname === '127.0.0.1') {
+      return `${protocol}//${hostname}:5000`;
+    }
+    // Deployed environment on Render / production
+    return origin || 'https://dimsat-app.onrender.com';
+  }
+  return 'https://dimsat-app.onrender.com';
+};
 
-export const API_BASE_URL = DEV_API_BASE;
+export const API_BASE_URL = getApiBase();
 export const API_URL = `${API_BASE_URL}/api`;

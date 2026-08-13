@@ -2,10 +2,14 @@ import { QueryClient, QueryClientProvider, useQueryClient } from '@tanstack/reac
 import {
   Activity, ArrowRight, BadgeCheck, BarChart3, Bell, CalendarDays, Camera, Check, CheckCircle2,
   ChevronDown, ClipboardCheck, Clock3, Download, Eye, EyeOff, FileUp, Filter, GraduationCap,
-  LayoutDashboard, Loader2, LogOut, Menu, MoreHorizontal, Pencil, Plus, Printer, QrCode,
-  RefreshCw, RotateCcw, ScanLine, Search, Settings2, ShieldCheck, SlidersHorizontal, Trash2, User, UserPlus,
+  LayoutDashboard, Loader2, LogOut, Menu, MoreHorizontal, MoreVertical, Moon, Pencil, Plus, Printer, QrCode,
+  RefreshCw, RotateCcw, ScanLine, Search, Settings2, ShieldCheck, SlidersHorizontal, Sun, Trash2, User, UserCheck, UserPlus,
   Users, Volume2, X, Zap
 } from 'lucide-react';
+import {
+  DropdownMenu, DropdownMenuContent, DropdownMenuGroup, DropdownMenuItem, DropdownMenuLabel,
+  DropdownMenuSeparator, DropdownMenuTrigger
+} from '@/components/ui/dropdown-menu';
 import {
   useConfirmAttendance, useCreateEvent, useCreateOfficer, useGenerateEventQr, useGetDashboard,
   useGetSettings, useImportStudents, useListAttendance, useListEvents, useListOfficers,
@@ -121,7 +125,7 @@ type StaffUser = {
   officerId?: string;
   fullName: string;
   email: string;
-  role: 'super_admin' | 'officer';
+  role: 'super_admin' | 'officer' | 'student';
 };
 
 function getStoredStaffUser(): StaffUser {
@@ -159,20 +163,29 @@ function useGreeting() {
 function AppShell({ children }: { children: React.ReactNode }) {
   const [location, setLocation] = useLocation();
   const [mobileOpen, setMobileOpen] = useState(false);
-  const user = getStoredStaffUser();
+  const [user, setUser] = useState(getStoredStaffUser);
+
+  useEffect(() => {
+    const syncUser = () => setUser(getStoredStaffUser());
+    window.addEventListener('storage', syncUser);
+    return () => window.removeEventListener('storage', syncUser);
+  }, []);
 
   const isOfficer = user.role === 'officer';
+  const isStudent = user.role === 'student';
 
-  // Guard restricted pages for Officer role
+  // Guard restricted pages for Officer / Student roles
   useEffect(() => {
     if (isOfficer && ['/students', '/officers', '/settings'].includes(location)) {
       setLocation('/dashboard');
+    } else if (isStudent && ['/officers', '/settings'].includes(location)) {
+      setLocation('/dashboard');
     }
-  }, [isOfficer, location, setLocation]);
+  }, [isOfficer, isStudent, location, setLocation]);
 
-  // Filter navigation links based on role
+  // Filter navigation links based on active role
   const visibleNav = nav.filter((item) => {
-    if (isOfficer) {
+    if (isOfficer || isStudent) {
       return ['/dashboard', '/events', '/attendance', '/scanner'].includes(item.href);
     }
     return true;
@@ -222,7 +235,7 @@ function AppShell({ children }: { children: React.ReactNode }) {
           })}
         </nav>
         <div className="mt-auto pt-2 grid gap-1">
-          {!isOfficer && (
+          {!isOfficer && !isStudent && (
             <Link data-testid="link-settings" href="/settings" className={`flex items-center gap-3 rounded-lg px-3 py-2 text-[14px] font-bold transition-all ${location === '/settings' ? 'bg-sidebar-accent text-white nav-item-active-glow' : 'text-slate-100 hover:bg-sidebar-accent/60 hover:text-white'}`}>
               <Settings2 className={`size-[18px] shrink-0 ${location === '/settings' ? 'text-[#38bdf8]' : 'text-[#38bdf8] opacity-90 group-hover:opacity-100'}`} />Setting
             </Link>
@@ -232,7 +245,9 @@ function AppShell({ children }: { children: React.ReactNode }) {
               <div className="grid size-8 place-items-center rounded-full bg-gradient-to-br from-[#4ade80]/30 to-[#38bdf8]/30 font-mono text-[11px] font-extrabold text-[#4ade80] ring-1 ring-[#4ade80]/40">{initials}</div>
               <div className="min-w-0 flex-1">
                 <div className="truncate text-[13px] font-bold text-white">{user.fullName}</div>
-                <div className="font-mono text-[10px] font-bold text-slate-300 uppercase tracking-wider">{isOfficer ? 'OFFICER' : 'SUPER ADMIN'}</div>
+                <div className="font-mono text-[10px] font-bold text-slate-300 uppercase tracking-wider">
+                  {user.role === 'super_admin' ? 'SUPER ADMIN' : user.role === 'officer' ? 'OFFICER' : 'STUDENT'}
+                </div>
               </div>
               <ChevronDown className="ml-auto size-3.5 text-slate-400" />
             </div>
@@ -240,6 +255,7 @@ function AppShell({ children }: { children: React.ReactNode }) {
               data-testid="button-sign-out"
               onClick={() => {
                 localStorage.removeItem('dimsat_user');
+                window.dispatchEvent(new Event('storage'));
                 setLocation('/');
               }}
               className="mt-1 flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-[13px] font-bold text-slate-200 hover:bg-red-500/20 hover:text-red-300 transition-all"
@@ -251,7 +267,7 @@ function AppShell({ children }: { children: React.ReactNode }) {
       </aside>
       {mobileOpen && <button aria-label="Close menu" data-testid="button-close-menu" className="fixed inset-0 z-30 bg-sidebar/40 md:hidden" onClick={() => setMobileOpen(false)} />}
       <main className="md:pl-[250px]">
-        <AppHeader location={location} />
+        <AppHeader location={location} onOpenMobile={() => setMobileOpen(true)} />
         <div className="mx-auto max-w-[1440px] px-4 py-5 md:px-7 md:py-6">{children}</div>
       </main>
     </div>
@@ -457,22 +473,299 @@ function SignIn() {
   );
 }
 
-function AppHeader({ location }: { location: string }) {
-  const now = new Date();
-  const timeStr = now.toLocaleTimeString('en-PH', { hour: '2-digit', minute: '2-digit', hour12: true });
-  const dateStr = now.toLocaleDateString('en-PH', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
+function StudentQrPassModal({ user, onClose }: { user: StaffUser; onClose: () => void }) {
+  const qrData = JSON.stringify({
+    studentId: user.officerId || '2026-00892',
+    name: user.fullName,
+    role: user.role,
+    verified: true,
+    issuedAt: new Date().toISOString().split('T')[0]
+  });
 
   return (
-    <header className="sticky top-0 z-20 flex h-[60px] items-center justify-between border-b border-border/70 bg-background/90 px-4 backdrop-blur-md md:px-7">
-      <div className="hidden font-mono text-[10px] uppercase tracking-[.15em] text-muted-foreground md:block">DIMSAT / {location.replace('/', '') || 'overview'}</div>
-      <div className="ml-auto flex items-center gap-3">
-        {/* Live Clock */}
-        <div className="hidden sm:flex items-center gap-2 rounded-full border border-border bg-card px-3 py-1.5">
-          <span className="size-1.5 rounded-full bg-emerald-500 animate-pulse" />
-          <span className="font-mono text-[10px] text-muted-foreground">{timeStr} · {dateStr}</span>
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/65 backdrop-blur-sm p-4 animate-in fade-in duration-200">
+      <div className="relative w-full max-w-sm overflow-hidden rounded-2xl border border-primary/30 bg-card p-6 shadow-2xl rise-in">
+        <button
+          onClick={onClose}
+          className="absolute right-4 top-4 rounded-full p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
+          aria-label="Close QR Modal"
+        >
+          <X className="size-4" />
+        </button>
+
+        {/* Card Header with School Logo */}
+        <div className="flex items-center gap-3 border-b border-border pb-4">
+          <div className="size-10 rounded-full bg-white p-0.5 shadow border border-border flex items-center justify-center shrink-0">
+            <img src="/zdspgc-logo.png" alt="ZDSPGC Logo" className="size-full object-contain rounded-full" />
+          </div>
+          <div>
+            <div className="text-[11px] font-mono font-bold text-primary uppercase tracking-wider">ZDSPGC Dimataling</div>
+            <div className="text-sm font-black text-foreground">Digital Attendance Pass</div>
+          </div>
+        </div>
+
+        {/* QR Code Container */}
+        <div className="my-5 flex flex-col items-center justify-center rounded-xl bg-white p-5 shadow-inner border border-slate-200">
+          <QRCodeSVG value={qrData} size={180} level="H" />
+          <div className="mt-3 text-center">
+            <div className="font-mono text-[11px] font-extrabold text-slate-800 tracking-widest">{user.officerId || '2026-00892'}</div>
+            <div className="text-[10px] font-semibold text-slate-500">Official Encrypted QR Token</div>
+          </div>
+        </div>
+
+        {/* Student Info Details */}
+        <div className="rounded-xl bg-muted/60 p-3.5 space-y-1.5 text-xs">
+          <div className="flex justify-between">
+            <span className="text-muted-foreground font-medium">Name:</span>
+            <span className="font-bold text-foreground">{user.fullName}</span>
+          </div>
+          <div className="flex justify-between">
+            <span className="text-muted-foreground font-medium">Role / Program:</span>
+            <span className="font-bold text-foreground capitalize">{user.role.replace('_', ' ')} / BSIS</span>
+          </div>
+          <div className="flex justify-between">
+            <span className="text-muted-foreground font-medium">Campus Status:</span>
+            <span className="inline-flex items-center gap-1 font-mono text-[10px] font-bold text-emerald-600 bg-emerald-500/15 px-1.5 py-0.5 rounded">
+              <CheckCircle2 className="size-3" /> VERIFIED
+            </span>
+          </div>
+        </div>
+
+        <div className="mt-5 flex gap-2">
+          <Button variant="outline" className="w-full text-xs" onClick={onClose}>
+            Close Pass
+          </Button>
         </div>
       </div>
-    </header>
+    </div>
+  );
+}
+
+function AppHeader({ location, onOpenMobile }: { location: string; onOpenMobile?: () => void }) {
+  const [showStudentQrModal, setShowStudentQrModal] = useState(false);
+  const [isDarkMode, setIsDarkMode] = useState(() => document.documentElement.classList.contains('dark'));
+  const [user, setUser] = useState(getStoredStaffUser);
+  const [, setLocation] = useLocation();
+  const { toast } = useToast();
+
+  useEffect(() => {
+    const syncUser = () => setUser(getStoredStaffUser());
+    window.addEventListener('storage', syncUser);
+    return () => window.removeEventListener('storage', syncUser);
+  }, []);
+
+  const handleRoleChange = (newRole: 'super_admin' | 'officer' | 'student') => {
+    const updated = { ...user, role: newRole };
+    setUser(updated);
+    localStorage.setItem('dimsat_user', JSON.stringify(updated));
+    window.dispatchEvent(new Event('storage'));
+    toast({
+      title: "Mode Switched",
+      description: `Active role updated to ${newRole === 'super_admin' ? 'Super Admin' : newRole === 'officer' ? 'Officer' : 'Student'}.`,
+    });
+  };
+
+  const toggleTheme = () => {
+    const isDark = document.documentElement.classList.toggle('dark');
+    setIsDarkMode(isDark);
+    toast({
+      title: isDark ? "Dark Mode Enabled" : "Light Mode Enabled",
+      description: "App appearance theme has been updated.",
+    });
+  };
+
+  const now = new Date();
+  const timeStr = now.toLocaleTimeString('en-PH', { hour: '2-digit', minute: '2-digit', hour12: true });
+  const dateStr = now.toLocaleDateString('en-PH', { weekday: 'short', month: 'short', day: 'numeric' });
+
+  return (
+    <>
+      <header className="sticky top-0 z-20 flex h-[60px] items-center justify-between border-b border-border/70 bg-background/90 px-4 backdrop-blur-md md:px-7">
+        {/* Left section: Hamburger for Mobile + Brand or Breadcrumb */}
+        <div className="flex items-center gap-3">
+          <button
+            data-testid="button-open-mobile-sidebar"
+            onClick={onOpenMobile}
+            className="flex items-center justify-center rounded-lg p-2 text-muted-foreground hover:bg-muted hover:text-foreground md:hidden"
+            aria-label="Open navigation sidebar"
+          >
+            <Menu className="size-5" />
+          </button>
+          
+          <div className="md:hidden flex items-center">
+            <Logo size="sm" />
+          </div>
+
+          <div className="hidden font-mono text-[10px] uppercase tracking-[.15em] text-muted-foreground md:block">
+            DIMSAT / {location.replace('/', '') || 'overview'}
+          </div>
+        </div>
+
+        {/* Right section: Live Clock + Top Kebab Menu */}
+        <div className="ml-auto flex items-center gap-2.5">
+          {/* Live Clock */}
+          <div className="hidden sm:flex items-center gap-2 rounded-full border border-border bg-card px-3 py-1.5">
+            <span className="size-1.5 rounded-full bg-emerald-500 animate-pulse" />
+            <span className="font-mono text-[10px] text-muted-foreground">{timeStr} · {dateStr}</span>
+          </div>
+
+          {/* Top Kebab Menu Dropdown */}
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <button
+                data-testid="top-kebab-menu-button"
+                aria-label="Options and quick actions menu"
+                className="flex size-9 items-center justify-center rounded-xl border border-border/80 bg-card text-foreground transition-all hover:border-primary/50 hover:bg-muted active:scale-95 shadow-sm"
+              >
+                <MoreVertical className="size-4 text-foreground/90" />
+              </button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-64 p-2 shadow-2xl rounded-xl border-border bg-popover/95 backdrop-blur-lg">
+              {/* User Header */}
+              <div className="flex items-center gap-2.5 p-2 rounded-lg bg-muted/60 mb-1.5">
+                <div className="grid size-8 place-items-center rounded-full bg-primary/20 font-mono text-xs font-bold text-primary">
+                  {user.fullName[0]}
+                </div>
+                <div className="min-w-0 flex-1">
+                  <div className="truncate text-xs font-extrabold text-foreground">{user.fullName}</div>
+                  <div className="font-mono text-[9px] font-bold text-primary uppercase tracking-wider">
+                    {user.role === 'super_admin' ? '🛡️ SUPER ADMIN' : user.role === 'officer' ? '👮 OFFICER' : '🎓 STUDENT'}
+                  </div>
+                </div>
+              </div>
+
+              {/* Role Switcher choices */}
+              <DropdownMenuLabel className="font-mono text-[10px] uppercase text-muted-foreground px-2 py-1">
+                Access Role
+              </DropdownMenuLabel>
+              <DropdownMenuItem
+                data-testid="kebab-role-admin"
+                onClick={() => handleRoleChange('super_admin')}
+                className="flex items-center gap-2 cursor-pointer font-medium text-xs"
+              >
+                <ShieldCheck className="size-4 text-emerald-500" />
+                <span>Super Admin Mode</span>
+                {user.role === 'super_admin' && <Check className="ml-auto size-3.5 text-emerald-500" />}
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                data-testid="kebab-role-officer"
+                onClick={() => handleRoleChange('officer')}
+                className="flex items-center gap-2 cursor-pointer font-medium text-xs"
+              >
+                <Users className="size-4 text-blue-500" />
+                <span>Officer Mode</span>
+                {user.role === 'officer' && <Check className="ml-auto size-3.5 text-blue-500" />}
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                data-testid="kebab-role-student"
+                onClick={() => handleRoleChange('student')}
+                className="flex items-center gap-2 cursor-pointer font-medium text-xs"
+              >
+                <GraduationCap className="size-4 text-amber-500" />
+                <span>Student Mode</span>
+                {user.role === 'student' && <Check className="ml-auto size-3.5 text-amber-500" />}
+              </DropdownMenuItem>
+
+              <DropdownMenuSeparator className="my-1.5" />
+
+              {/* Choices applying to Officer & Student */}
+              <DropdownMenuLabel className="font-mono text-[10px] uppercase text-muted-foreground px-2 py-1">
+                Officer & Student Choices
+              </DropdownMenuLabel>
+              <DropdownMenuItem
+                data-testid="kebab-nav-scanner"
+                onClick={() => setLocation('/scanner')}
+                className="flex items-center gap-2 cursor-pointer text-xs font-semibold"
+              >
+                <ScanLine className="size-4 text-pink-500" />
+                <span>Live QR Scanner</span>
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                data-testid="kebab-nav-events"
+                onClick={() => setLocation('/events')}
+                className="flex items-center gap-2 cursor-pointer text-xs font-semibold"
+              >
+                <CalendarDays className="size-4 text-purple-500" />
+                <span>Events Schedule</span>
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                data-testid="kebab-nav-attendance"
+                onClick={() => setLocation('/attendance')}
+                className="flex items-center gap-2 cursor-pointer text-xs font-semibold"
+              >
+                <ClipboardCheck className="size-4 text-orange-500" />
+                <span>Attendance Logs</span>
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                data-testid="kebab-nav-students"
+                onClick={() => setLocation('/students')}
+                className="flex items-center gap-2 cursor-pointer text-xs font-semibold"
+              >
+                <GraduationCap className="size-4 text-sky-500" />
+                <span>Certified Students</span>
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                data-testid="kebab-nav-qr-pass"
+                onClick={() => setShowStudentQrModal(true)}
+                className="flex items-center gap-2 cursor-pointer text-xs font-semibold text-primary focus:bg-primary/10"
+              >
+                <QrCode className="size-4 text-primary" />
+                <span>Student Digital QR Pass</span>
+                <span className="ml-auto font-mono text-[9px] bg-primary/15 text-primary px-1.5 py-0.5 rounded font-bold">CARD</span>
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                data-testid="kebab-nav-officers"
+                onClick={() => setLocation('/officers')}
+                className="flex items-center gap-2 cursor-pointer text-xs font-semibold"
+              >
+                <Users className="size-4 text-yellow-500" />
+                <span>Officer Roster</span>
+              </DropdownMenuItem>
+
+              <DropdownMenuSeparator className="my-1.5" />
+
+              {/* Preferences & Actions */}
+              <DropdownMenuLabel className="font-mono text-[10px] uppercase text-muted-foreground px-2 py-1">
+                Preferences
+              </DropdownMenuLabel>
+              <DropdownMenuItem
+                data-testid="kebab-toggle-theme"
+                onClick={toggleTheme}
+                className="flex items-center gap-2 cursor-pointer text-xs font-medium"
+              >
+                {isDarkMode ? <Sun className="size-4 text-amber-400" /> : <Moon className="size-4 text-indigo-500" />}
+                <span>{isDarkMode ? 'Switch to Light Mode' : 'Switch to Dark Mode'}</span>
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                data-testid="kebab-nav-settings"
+                onClick={() => setLocation('/settings')}
+                className="flex items-center gap-2 cursor-pointer text-xs font-medium"
+              >
+                <Settings2 className="size-4 text-slate-400" />
+                <span>System Settings</span>
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                data-testid="kebab-button-sign-out"
+                onClick={() => {
+                  localStorage.removeItem('dimsat_user');
+                  window.dispatchEvent(new Event('storage'));
+                  setLocation('/');
+                }}
+                className="flex items-center gap-2 cursor-pointer text-xs font-semibold text-red-500 focus:bg-red-500/10 focus:text-red-600"
+              >
+                <LogOut className="size-4 text-red-500" />
+                <span>Sign out</span>
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </div>
+      </header>
+
+      {/* Student QR Pass Modal */}
+      {showStudentQrModal && (
+        <StudentQrPassModal user={user} onClose={() => setShowStudentQrModal(false)} />
+      )}
+    </>
   );
 }
 
