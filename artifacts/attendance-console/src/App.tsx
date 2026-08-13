@@ -733,12 +733,12 @@ function parseStudentRowLine(rawLine: string) {
   const trimmed = rawLine.trim();
   if (!trimmed) return null;
 
-  let tokens: string[] = [];
-
+  // Tokenize: split by tabs first, then comma, then whitespace
+  let tokens: string[];
   if (trimmed.includes('\t')) {
-    tokens = trimmed.split('\t').map((t) => t.trim());
-  } else if (trimmed.includes(',')) {
-    // Respect quoted CSV fields
+    tokens = trimmed.split('\t').map(t => t.trim()).filter(Boolean);
+  } else if (trimmed.split(',').length >= 4) {
+    // Proper CSV
     const parts: string[] = [];
     let cur = '';
     let inQ = false;
@@ -748,66 +748,53 @@ function parseStudentRowLine(rawLine: string) {
       else { cur += ch; }
     }
     parts.push(cur.trim());
-    tokens = parts;
+    tokens = parts.filter(Boolean);
   } else {
-    tokens = trimmed.split(/\s+/).map((t) => t.trim()).filter(Boolean);
+    // Space-separated (the format in the screenshot)
+    tokens = trimmed.split(/\s+/).map(t => t.trim()).filter(Boolean);
   }
-
-  // Remove empty trailing tokens
-  while (tokens.length && !tokens[tokens.length - 1]) tokens.pop();
 
   if (tokens.length < 2) return null;
 
-  let fullName = '';
-  let studentId = '';
-  let yearLevel = '1';
-  let program: string | null = null;   // null so we detect actual value
-  let sex = 'Male';
+  // Student ID pattern: alphanumeric, contains at least one digit, 4-18 chars
+  // e.g. 26DM0166, 2026-0001, 25DM0749
+  const ID_RE = /^[A-Za-z0-9-]{4,18}$/.test.bind(/^[A-Za-z0-9-]{4,18}$/);
+  const HAS_DIGIT = /\d/.test.bind(/\d/);
+  const PROGRAMS = ['ACT-AD', 'BSIS', 'BPED', 'BSED', 'BSHM', 'BSIT', 'ACT', 'BS', 'AB'];
+  const SEX_WORDS = ['male', 'female', 'm', 'f'];
+  const YEAR_RE = /^[1-4]$/;
 
-  // Detect if first row has named headers and map positionally
-  // For data rows we use positional mapping if >=4 tokens and no header clue
-  // Standard Excel column order assumed: Name, StudentID, Year, Program, Sex
-  if (tokens.length >= 4) {
-    // Heuristic: if token[1] looks like a student ID (alphanumeric, contains digit), use it
-    const maybeId = tokens[1]?.trim();
-    if (maybeId && /^[A-Za-z0-9]{4, 18}$/.test(maybeId) && /\d/.test(maybeId)) {
-      fullName = tokens[0] || '';
-      studentId = maybeId;
-      yearLevel = tokens[2]?.replace(/[^0-9]/g, '') || '1';
-      program = tokens[3]?.trim() || null;
-      sex = (tokens[4] || '').toLowerCase().startsWith('f') ? 'Female' : 'Male';
-    } else {
-      // Try finding student ID by pattern
-      const idIdx = tokens.findIndex((t) => /^[A-Za-z0-9-]{4, 18}$/.test(t) && /\d/.test(t));
-      if (idIdx !== -1) {
-        studentId = tokens[idIdx];
-        fullName = tokens.slice(0, idIdx).join(' ');
-        const remaining = tokens.slice(idIdx + 1);
-        for (const tok of remaining) {
-          const lower = tok.toLowerCase();
-          if (['male', 'female', 'm', 'f'].includes(lower)) {
-            sex = lower.startsWith('f') ? 'Female' : 'Male';
-          } else if (/^[1-4]$|^[1-4](st|nd|rd|th)?$/i.test(tok)) {
-            yearLevel = tok.replace(/[^0-9]/g, '') || '1';
-          } else if (tok.length >= 2 && program === null) {
-            program = tok;
-          }
-        }
-      } else {
-        return null;
-      }
-    }
-  } else {
-    const idIdx = tokens.findIndex((t) => /^[A-Za-z0-9-]{4, 18}$/.test(t) && /\d/.test(t));
-    if (idIdx === -1) return null;
-    studentId = tokens[idIdx];
-    fullName = tokens.slice(0, idIdx).join(' ');
-  }
+  // Try to locate the student ID token (has digits, looks like an ID)
+  const idIdx = tokens.findIndex(t => ID_RE(t) && HAS_DIGIT(t) && !/^(male|female|m|f)$/i.test(t));
+  if (idIdx === -1) return null;
 
-  fullName = fullName.trim();
-  studentId = studentId.trim();
+  const studentId = tokens[idIdx]!;
+  const nameParts = tokens.slice(0, idIdx);
+  const rest = tokens.slice(idIdx + 1);
+
+  // Build full name from name parts (handle "LAST,FIRST" or "LAST FIRST" forms)
+  let fullName = nameParts.join(' ').replace(/,/g, ', ').trim();
+  // Remove trailing comma if any
+  fullName = fullName.replace(/,\s*$/, '').trim();
 
   if (!fullName || !studentId) return null;
+
+  let yearLevel = '1';
+  let program: string | null = null;
+  let sex = 'Male';
+
+  for (const tok of rest) {
+    const lower = tok.toLowerCase();
+    if (SEX_WORDS.includes(lower)) {
+      sex = lower.startsWith('f') ? 'Female' : 'Male';
+    } else if (YEAR_RE.test(tok)) {
+      yearLevel = tok;
+    } else if (PROGRAMS.some(p => tok.toUpperCase().startsWith(p.split('-')[0]!))) {
+      program = tok.toUpperCase();
+    } else if (tok.length >= 2 && program === null && !HAS_DIGIT(tok)) {
+      program = tok.toUpperCase();
+    }
+  }
 
   return {
     fullName,
@@ -817,6 +804,7 @@ function parseStudentRowLine(rawLine: string) {
     sex: sex || 'Male',
   };
 }
+
 
 function ImportDialog({ onClose, onImportSuccess }: { onClose: () => void; onImportSuccess: () => void }) {
   const importMutation = useImportStudents();
@@ -928,9 +916,10 @@ function ImportDialog({ onClose, onImportSuccess }: { onClose: () => void; onImp
   };
 
   return (
-    <div className="fixed inset-0 z-50 grid place-items-center bg-sidebar/40 p-4">
-      <div className="w-full max-w-xl rounded-2xl border border-card-border bg-card p-6 shadow-2xl">
-        <div className="flex items-start justify-between">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-sidebar/40 p-4">
+      <div className="w-full max-w-xl flex flex-col max-h-[90vh] rounded-2xl border border-card-border bg-card shadow-2xl">
+        {/* Header */}
+        <div className="flex items-start justify-between px-6 pt-6 pb-4 shrink-0">
           <div>
             <div className="font-mono text-[10px] uppercase tracking-[.15em] text-primary">Certified Roster Intake</div>
             <h2 className="mt-2 text-xl font-extrabold tracking-[-.04em]">Import Excel (.xlsx) Roster</h2>
@@ -940,8 +929,10 @@ function ImportDialog({ onClose, onImportSuccess }: { onClose: () => void; onImp
           </button>
         </div>
 
-        <div className="mt-5 grid gap-4">
-          <div className="rounded-xl border border-dashed border-border bg-muted/40 p-6 text-center">
+        {/* Scrollable body */}
+        <div className="overflow-y-auto px-6 pb-2 flex-1 grid gap-4">
+          {/* File Upload Zone */}
+          <div className="rounded-xl border border-dashed border-border bg-muted/40 p-5 text-center">
             <FileUp className="mx-auto size-8 text-primary" />
             <p className="mt-2 text-xs font-bold">Select Excel file (.xlsx) or CSV</p>
             <p className="mt-1 text-[11px] text-muted-foreground">Columns: Student Name, Student ID, Year Level, Program, Sex</p>
@@ -951,6 +942,7 @@ function ImportDialog({ onClose, onImportSuccess }: { onClose: () => void; onImp
             </Button>
           </div>
 
+          {/* CSV Paste */}
           <div>
             <label className="text-[11px] font-bold text-muted-foreground">Or paste CSV data below:</label>
             <textarea
@@ -958,10 +950,11 @@ function ImportDialog({ onClose, onImportSuccess }: { onClose: () => void; onImp
               value={csvText}
               onChange={(e) => handleCsvChange(e.target.value)}
               placeholder={'Student Name,Student ID,Year Level,Program,Sex\nAhmad Ali,2026-0001,1,ACT-AD,Male\nMaria Santos,2026-0002,2,BSED,Female'}
-              className="mt-2 h-28 w-full resize-none rounded-lg border border-input bg-background p-3 font-mono text-[11px] outline-none focus:border-primary focus:ring-2 focus:ring-primary/15"
+              className="mt-2 h-24 w-full resize-none rounded-lg border border-input bg-background p-3 font-mono text-[11px] outline-none focus:border-primary focus:ring-2 focus:ring-primary/15"
             />
           </div>
 
+          {/* Validation Preview */}
           {stats && (
             <div className="rounded-xl border border-primary/25 bg-primary/8 p-4">
               <div className="text-xs font-bold text-primary">Import Validation Preview</div>
@@ -993,7 +986,8 @@ function ImportDialog({ onClose, onImportSuccess }: { onClose: () => void; onImp
           )}
         </div>
 
-        <div className="mt-6 flex justify-end gap-2">
+        {/* Footer */}
+        <div className="flex justify-end gap-2 px-6 py-4 border-t border-border shrink-0">
           <Button variant="ghost" onClick={onClose}>Cancel</Button>
           <Button
             data-testid="button-submit-import"
