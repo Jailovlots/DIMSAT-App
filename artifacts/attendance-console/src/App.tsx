@@ -134,6 +134,28 @@ function getStoredStaffUser(): StaffUser {
   return { id: 0, fullName: 'System Admin', email: 'admin@zdspgc.edu.ph', role: 'super_admin' };
 }
 
+function useGreeting() {
+  const [greeting, setGreeting] = useState(() => {
+    const h = new Date().getHours();
+    if (h >= 5 && h < 12) return 'Good morning';
+    if (h >= 12 && h < 17) return 'Good afternoon';
+    if (h >= 17 && h < 21) return 'Good evening';
+    return 'Good night';
+  });
+  useEffect(() => {
+    const update = () => {
+      const h = new Date().getHours();
+      if (h >= 5 && h < 12) setGreeting('Good morning');
+      else if (h >= 12 && h < 17) setGreeting('Good afternoon');
+      else if (h >= 17 && h < 21) setGreeting('Good evening');
+      else setGreeting('Good night');
+    };
+    const interval = setInterval(update, 60_000);
+    return () => clearInterval(interval);
+  }, []);
+  return greeting;
+}
+
 function AppShell({ children }: { children: React.ReactNode }) {
   const [location, setLocation] = useLocation();
   const [mobileOpen, setMobileOpen] = useState(false);
@@ -166,15 +188,15 @@ function AppShell({ children }: { children: React.ReactNode }) {
 
   return (
     <div className="min-h-[100dvh] bg-background">
-      <aside className={`fixed inset-y-0 left-0 z-40 flex w-[275px] flex-col sidebar-bg px-4.5 py-6 text-sidebar-foreground transition-transform md:translate-x-0 ${mobileOpen ? 'translate-x-0' : '-translate-x-full'}`}>
+      <aside className={`fixed inset-y-0 left-0 z-40 flex w-[250px] flex-col sidebar-bg px-3.5 py-4 text-sidebar-foreground transition-transform md:translate-x-0 overflow-y-auto ${mobileOpen ? 'translate-x-0' : '-translate-x-full'}`}>
         {/* Colorful top accent strip */}
         <div className="absolute inset-x-0 top-0 h-[4px] rounded-t-none" style={{ background: 'linear-gradient(90deg, #4ade80, #38bdf8, #a78bfa, #fb923c, #f472b6)' }} />
         {/* Subtle radial glow behind logo */}
-        <div className="absolute left-4 top-4 size-28 rounded-full bg-[#4ade80]/10 blur-2xl pointer-events-none" />
+        <div className="absolute left-4 top-4 size-24 rounded-full bg-[#4ade80]/10 blur-2xl pointer-events-none" />
 
-        <div className="mb-8 px-2 relative"><Logo dark size="md" /></div>
-        <div className="px-3 pb-3 font-mono text-[13px] font-bold uppercase tracking-[.18em] text-slate-300">Workspace</div>
-        <nav className="grid gap-1.5">
+        <div className="mb-4 px-1.5 relative"><Logo dark size="md" /></div>
+        <div className="px-2 pb-1.5 font-mono text-[11px] font-bold uppercase tracking-[.18em] text-slate-300">Workspace</div>
+        <nav className="grid gap-1">
           {visibleNav.map(item => {
             const Icon = item.icon;
             const active = location === item.href;
@@ -185,34 +207,34 @@ function AppShell({ children }: { children: React.ReactNode }) {
                 key={item.href}
                 href={item.href}
                 onClick={() => setMobileOpen(false)}
-                className={`group relative flex items-center gap-4 rounded-xl px-4 py-3 text-[17px] font-bold transition-all duration-150
+                className={`group relative flex items-center gap-3 rounded-lg px-3 py-2 text-[14px] font-bold transition-all duration-150
                   ${active
                     ? 'bg-sidebar-accent text-white nav-item-active-glow'
                     : 'text-slate-100 hover:bg-sidebar-accent/60 hover:text-white'}`}
               >
                 {/* Active left accent line */}
-                {active && <span className="absolute left-0 top-2 bottom-2 w-[4px] rounded-full bg-sidebar-primary shadow-[0_0_8px_#4ade80]" />}
-                <Icon className={`size-[20px] shrink-0 transition-colors ${active ? iconColor : `${iconColor} opacity-90 group-hover:opacity-100`}`} />
+                {active && <span className="absolute left-0 top-1.5 bottom-1.5 w-[3px] rounded-full bg-sidebar-primary shadow-[0_0_8px_#4ade80]" />}
+                <Icon className={`size-[18px] shrink-0 transition-colors ${active ? iconColor : `${iconColor} opacity-90 group-hover:opacity-100`}`} />
                 <span>{item.label}</span>
-                {item.href === '/scanner' && <span className="ml-auto size-2.5 rounded-full bg-[#f472b6] shadow-[0_0_8px_#f472b6]" />}
+                {item.href === '/scanner' && <span className="ml-auto size-2 rounded-full bg-[#f472b6] shadow-[0_0_6px_#f472b6]" />}
               </Link>
             );
           })}
         </nav>
-        <div className="mt-auto grid gap-1.5">
+        <div className="mt-auto pt-2 grid gap-1">
           {!isOfficer && (
-            <Link data-testid="link-settings" href="/settings" className={`flex items-center gap-4 rounded-xl px-4 py-3 text-[17px] font-bold transition-all ${location === '/settings' ? 'bg-sidebar-accent text-white nav-item-active-glow' : 'text-slate-100 hover:bg-sidebar-accent/60 hover:text-white'}`}>
-              <Settings2 className={`size-[20px] shrink-0 ${location === '/settings' ? 'text-[#38bdf8]' : 'text-[#38bdf8] opacity-90 group-hover:opacity-100'}`} />Setting
+            <Link data-testid="link-settings" href="/settings" className={`flex items-center gap-3 rounded-lg px-3 py-2 text-[14px] font-bold transition-all ${location === '/settings' ? 'bg-sidebar-accent text-white nav-item-active-glow' : 'text-slate-100 hover:bg-sidebar-accent/60 hover:text-white'}`}>
+              <Settings2 className={`size-[18px] shrink-0 ${location === '/settings' ? 'text-[#38bdf8]' : 'text-[#38bdf8] opacity-90 group-hover:opacity-100'}`} />Setting
             </Link>
           )}
-          <div className="mt-3 border-t border-slate-700/60 pt-4">
-            <div className="flex items-center gap-3 rounded-xl px-3 py-3 hover:bg-sidebar-accent/50 transition-colors cursor-default">
-              <div className="grid size-10 place-items-center rounded-full bg-gradient-to-br from-[#4ade80]/30 to-[#38bdf8]/30 font-mono text-[13px] font-extrabold text-[#4ade80] ring-1 ring-[#4ade80]/40">{initials}</div>
+          <div className="mt-2 border-t border-slate-700/60 pt-2.5">
+            <div className="flex items-center gap-2.5 rounded-lg px-2.5 py-2 hover:bg-sidebar-accent/50 transition-colors cursor-default">
+              <div className="grid size-8 place-items-center rounded-full bg-gradient-to-br from-[#4ade80]/30 to-[#38bdf8]/30 font-mono text-[11px] font-extrabold text-[#4ade80] ring-1 ring-[#4ade80]/40">{initials}</div>
               <div className="min-w-0 flex-1">
-                <div className="truncate text-[15px] font-bold text-white">{user.fullName}</div>
-                <div className="font-mono text-[12px] font-bold text-slate-300 uppercase tracking-wider">{isOfficer ? 'OFFICER' : 'SUPER ADMIN'}</div>
+                <div className="truncate text-[13px] font-bold text-white">{user.fullName}</div>
+                <div className="font-mono text-[10px] font-bold text-slate-300 uppercase tracking-wider">{isOfficer ? 'OFFICER' : 'SUPER ADMIN'}</div>
               </div>
-              <ChevronDown className="ml-auto size-4 text-slate-400" />
+              <ChevronDown className="ml-auto size-3.5 text-slate-400" />
             </div>
             <button
               data-testid="button-sign-out"
@@ -220,31 +242,16 @@ function AppShell({ children }: { children: React.ReactNode }) {
                 localStorage.removeItem('dimsat_user');
                 setLocation('/');
               }}
-              className="mt-1 flex w-full items-center gap-3 rounded-xl px-4 py-3 text-[14px] font-bold text-slate-200 hover:bg-red-500/20 hover:text-red-300 transition-all"
+              className="mt-1 flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-[13px] font-bold text-slate-200 hover:bg-red-500/20 hover:text-red-300 transition-all"
             >
-              <LogOut className="size-4.5 text-red-400" />Sign out
+              <LogOut className="size-4 text-red-400" />Sign out
             </button>
           </div>
         </div>
       </aside>
       {mobileOpen && <button aria-label="Close menu" data-testid="button-close-menu" className="fixed inset-0 z-30 bg-sidebar/40 md:hidden" onClick={() => setMobileOpen(false)} />}
-      <main className="md:pl-[275px]">
-        <header className="sticky top-0 z-20 flex h-[60px] items-center justify-between border-b border-border/70 bg-background/90 px-4 backdrop-blur-md md:px-7">
-          <button aria-label="Open menu" data-testid="button-open-menu" onClick={() => setMobileOpen(true)} className="rounded-lg p-2 text-muted-foreground hover:bg-muted md:hidden">
-            <Menu className="size-5" />
-          </button>
-          <div className="hidden font-mono text-[10px] uppercase tracking-[.15em] text-muted-foreground md:block">DIMSAT / {location.replace('/', '') || 'overview'}</div>
-          <div className="ml-auto flex items-center gap-3">
-            <div className="flex items-center gap-2 rounded-full border border-border bg-card px-3 py-1.5">
-              <span className="size-1.5 rounded-full bg-emerald-500" />
-              <span className="font-mono text-[10px] text-muted-foreground">Systems normal</span>
-            </div>
-            <button data-testid="button-notifications" className="relative rounded-lg p-2 text-muted-foreground hover:bg-muted">
-              <Bell className="size-4" />
-              <span className="absolute right-1.5 top-1.5 size-1.5 rounded-full bg-accent" />
-            </button>
-          </div>
-        </header>
+      <main className="md:pl-[250px]">
+        <AppHeader location={location} />
         <div className="mx-auto max-w-[1440px] px-4 py-5 md:px-7 md:py-6">{children}</div>
       </main>
     </div>
@@ -450,11 +457,32 @@ function SignIn() {
   );
 }
 
+function AppHeader({ location }: { location: string }) {
+  const now = new Date();
+  const timeStr = now.toLocaleTimeString('en-PH', { hour: '2-digit', minute: '2-digit', hour12: true });
+  const dateStr = now.toLocaleDateString('en-PH', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
+
+  return (
+    <header className="sticky top-0 z-20 flex h-[60px] items-center justify-between border-b border-border/70 bg-background/90 px-4 backdrop-blur-md md:px-7">
+      <div className="hidden font-mono text-[10px] uppercase tracking-[.15em] text-muted-foreground md:block">DIMSAT / {location.replace('/', '') || 'overview'}</div>
+      <div className="ml-auto flex items-center gap-3">
+        {/* Live Clock */}
+        <div className="hidden sm:flex items-center gap-2 rounded-full border border-border bg-card px-3 py-1.5">
+          <span className="size-1.5 rounded-full bg-emerald-500 animate-pulse" />
+          <span className="font-mono text-[10px] text-muted-foreground">{timeStr} · {dateStr}</span>
+        </div>
+      </div>
+    </header>
+  );
+}
+
 function Dashboard() {
+  const greeting = useGreeting();
+  const user = getStoredStaffUser();
   const q = useGetDashboard(); const d = q.data;
   return (
     <AppShell>
-      <PageHeader eyebrow="Operations / overview" title="Good morning, Admin." description="Here is the pulse of certified attendance across ZDSPGC Dimataling Campus." action={<Link href="/scanner" data-testid="link-open-scanner"><Button><ScanLine className="size-4" />Open live scanner</Button></Link>} />
+      <PageHeader eyebrow="Operations / overview" title={`${greeting}, ${user.fullName.split(' ')[0]}.`} description="Here is the pulse of certified attendance across ZDSPGC Dimataling Campus." action={<Link href="/scanner" data-testid="link-open-scanner"><Button><ScanLine className="size-4" />Open live scanner</Button></Link>} />
       {q.isLoading ? <Loading rows={3} /> : q.isError ? <ErrorState retry={() => q.refetch()} /> : d ? (
         <>
           <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
