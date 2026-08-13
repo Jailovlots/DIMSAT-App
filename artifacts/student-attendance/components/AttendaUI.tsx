@@ -10,7 +10,7 @@ export function Screen({ children, scroll = true, contentStyle }: { children: Re
   const top = Platform.OS === 'web' ? Math.max(67, insets.top) : insets.top;
   const bottom = Platform.OS === 'web' ? Math.max(34, insets.bottom) : insets.bottom;
   const styles = uiStyles;
-  const content = <View style={[styles.content, { paddingTop: top + 18, paddingBottom: bottom + 100 }, contentStyle]}>{children}</View>;
+  const content = <View style={[styles.content, { paddingTop: top + 10, paddingBottom: bottom + 60 }, contentStyle]}>{children}</View>;
   return <View style={[styles.screen, { backgroundColor: colors.background }]}>{scroll ? <ScrollView style={styles.scroll} showsVerticalScrollIndicator={false}>{content}</ScrollView> : content}</View>;
 }
 
@@ -123,18 +123,18 @@ const styles = StyleSheet.create({
   sectionHeader: { flexDirection: 'row', alignItems: 'flex-end', justifyContent: 'space-between', marginBottom: 14 },
   eyebrow: { fontSize: 11, fontWeight: '700', letterSpacing: 1.5, marginBottom: 4 },
   sectionTitle: { fontSize: 23, fontWeight: '700', letterSpacing: -0.5 },
-  primaryButton: { height: 54, borderRadius: 16, alignItems: 'center', justifyContent: 'center', flexDirection: 'row', gap: 9, paddingHorizontal: 18 },
-  buttonContent: { alignItems: 'center', justifyContent: 'center', flexDirection: 'row', gap: 9 },
+  primaryButton: { height: 46, borderRadius: 14, alignItems: 'center', justifyContent: 'center', flexDirection: 'row', gap: 8, paddingHorizontal: 16 },
+  buttonContent: { alignItems: 'center', justifyContent: 'center', flexDirection: 'row', gap: 8 },
   disabledButton: { opacity: 0.55 },
-  primaryLabel: { fontSize: 16, fontWeight: '700' },
-  secondaryButton: { minHeight: 50, borderRadius: 15, borderWidth: 1, alignItems: 'center', justifyContent: 'center', flexDirection: 'row', gap: 8, paddingHorizontal: 16 },
-  secondaryLabel: { fontSize: 15, fontWeight: '700' },
-  field: { gap: 7, marginBottom: 15 },
-  fieldLabel: { fontSize: 13, fontWeight: '700', letterSpacing: 0.1 },
+  primaryLabel: { fontSize: 15, fontWeight: '700' },
+  secondaryButton: { minHeight: 44, borderRadius: 13, borderWidth: 1, alignItems: 'center', justifyContent: 'center', flexDirection: 'row', gap: 7, paddingHorizontal: 14 },
+  secondaryLabel: { fontSize: 14, fontWeight: '700' },
+  field: { gap: 5, marginBottom: 10 },
+  fieldLabel: { fontSize: 12, fontWeight: '700', letterSpacing: 0.1 },
   inputRow: { flexDirection: 'row', alignItems: 'center', gap: 0 },
   inputFlex: { flex: 1, borderTopRightRadius: 0, borderBottomRightRadius: 0, borderRightWidth: 0 },
-  input: { height: 53, borderRadius: 15, borderWidth: 1, paddingHorizontal: 16, fontSize: 16 },
-  eyeButton: { height: 53, width: 52, borderTopRightRadius: 15, borderBottomRightRadius: 15, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
+  input: { height: 44, borderRadius: 12, borderWidth: 1, paddingHorizontal: 14, fontSize: 15 },
+  eyeButton: { height: 44, width: 46, borderTopRightRadius: 12, borderBottomRightRadius: 12, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
   fieldError: { fontSize: 12, lineHeight: 17, marginTop: -2 },
   pill: { flexDirection: 'row', alignItems: 'center', gap: 5, borderRadius: 20, paddingHorizontal: 10, paddingVertical: 6, alignSelf: 'flex-start' },
   pillText: { fontSize: 12, fontWeight: '700' },
