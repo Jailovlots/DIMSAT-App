@@ -18,8 +18,17 @@ export function BrandMark({ compact = false }: { compact?: boolean }) {
   const colors = useColors();
   return (
     <View style={styles.markRow}>
-      <Image source={require('@/assets/images/attenda-icon.png')} style={[styles.mark, compact && styles.markCompact]} />
-      {!compact && <View><Text style={[styles.brand, { color: colors.primary }]}>DIMSAT</Text><Text style={[styles.brandSub, { color: colors.mutedForeground }]}>campus attendance</Text></View>}
+      <Image
+        source={require('@/assets/images/bsis-logo.png')}
+        style={[styles.mark, compact && styles.markCompact]}
+        resizeMode="contain"
+      />
+      {!compact && (
+        <View>
+          <Text style={[styles.brand, { color: colors.primary }]}>DIMSAT</Text>
+          <Text style={[styles.brandSub, { color: colors.mutedForeground }]}>bsis dimataling campus</Text>
+        </View>
+      )}
     </View>
   );
 }
@@ -116,8 +125,8 @@ const styles = StyleSheet.create({
   scroll: { flex: 1 },
   content: { paddingHorizontal: 20 },
   markRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
-  mark: { width: 50, height: 50, borderRadius: 15 },
-  markCompact: { width: 35, height: 35, borderRadius: 11 },
+  mark: { width: 50, height: 50, borderRadius: 25 },
+  markCompact: { width: 36, height: 36, borderRadius: 18 },
   brand: { fontSize: 26, fontWeight: '700', letterSpacing: -1.2 },
   brandSub: { fontSize: 10, letterSpacing: 1.1, textTransform: 'uppercase', marginTop: -2 },
   sectionHeader: { flexDirection: 'row', alignItems: 'flex-end', justifyContent: 'space-between', marginBottom: 14 },
