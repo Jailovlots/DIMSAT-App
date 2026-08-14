@@ -62,18 +62,6 @@ const router = Router();
         status: "active",
       });
     }
-
-    // Seed default Officers matching the screenshot if table is empty
-    const existingOfficers = await db.select().from(officersTable).limit(1);
-    if (!existingOfficers[0]) {
-      await db.insert(officersTable).values([
-        { officerId: "OFF-001", fullName: "System Admin", email: "admin@zdspgc.edu.ph", role: "super_admin", passwordHash: "admin123", status: "active" },
-        { officerId: "OFF-002", fullName: "Suerte, Carlyn", email: "suerte@gmail.com", role: "officer", passwordHash: "officer123", status: "active" },
-        { officerId: "OFF-003", fullName: "Batlag, Suhaine", email: "batlag@gmail.com", role: "officer", passwordHash: "officer123", status: "active" },
-        { officerId: "OFF-004", fullName: "Cabilao, Romy", email: "cabilao@gmail.com", role: "officer", passwordHash: "officer123", status: "active" },
-        { officerId: "OFF-005", fullName: "Madrid, Barbie", email: "madrid@gmail.com", role: "officer", passwordHash: "officer123", status: "active" },
-      ]);
-    }
   } catch (err) {
     console.error("Startup migration check error:", err);
   }
@@ -804,13 +792,13 @@ router.post("/events", async (req, res, next) => {
     const defaultSessions = sessions?.length
       ? sessions
       : [
-          { name: "Morning IN", startTime: "07:00", endTime: "09:00", enabled: true },
-          { name: "Morning OUT", startTime: "11:00", endTime: "12:00", enabled: true },
-          { name: "Afternoon IN", startTime: "12:30", endTime: "14:00", enabled: true },
-          { name: "Afternoon OUT", startTime: "16:00", endTime: "17:00", enabled: true },
-          { name: "Evening IN", startTime: "18:00", endTime: "19:00", enabled: true },
-          { name: "Evening OUT", startTime: "21:00", endTime: "22:00", enabled: true },
-        ];
+        { name: "Morning IN", startTime: "07:00", endTime: "09:00", enabled: true },
+        { name: "Morning OUT", startTime: "11:00", endTime: "12:00", enabled: true },
+        { name: "Afternoon IN", startTime: "12:30", endTime: "14:00", enabled: true },
+        { name: "Afternoon OUT", startTime: "16:00", endTime: "17:00", enabled: true },
+        { name: "Evening IN", startTime: "18:00", endTime: "19:00", enabled: true },
+        { name: "Evening OUT", startTime: "21:00", endTime: "22:00", enabled: true },
+      ];
 
     const [event] = await db
       .insert(eventsTable)
@@ -1058,13 +1046,13 @@ router.get("/qr-codes", async (_req, res, next) => {
           createdAt: qr.createdAt,
           activeAssignment: activeAssignment[0]
             ? {
-                id: activeAssignment[0].id,
-                eventId: activeAssignment[0].eventId,
-                eventName: event?.name || "Unknown Event",
-                sessionId: activeAssignment[0].sessionId,
-                sessionName: session?.name || "Auto (By Schedule)",
-                activatedAt: activeAssignment[0].activatedAt,
-              }
+              id: activeAssignment[0].id,
+              eventId: activeAssignment[0].eventId,
+              eventName: event?.name || "Unknown Event",
+              sessionId: activeAssignment[0].sessionId,
+              sessionName: session?.name || "Auto (By Schedule)",
+              activatedAt: activeAssignment[0].activatedAt,
+            }
             : null,
         };
       })
@@ -1883,7 +1871,7 @@ router.post("/auth/staff/login", async (req, res, next) => {
     const cleanEmail = email.trim().toLowerCase();
 
     // Default System Admin login check
-    if ((cleanEmail === "admin@attenda.edu" || cleanEmail === "admin@zdspgc.edu.ph") && password === "admin123") {
+    if (cleanEmail === "admin@attenda.edu" && password === "admin123") {
       res.json({
         user: {
           id: 0,

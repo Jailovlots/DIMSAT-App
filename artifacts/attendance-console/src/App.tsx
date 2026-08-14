@@ -364,7 +364,7 @@ function Landing() {
 
 function SignIn() {
   const [, setLocation] = useLocation();
-  const [email, setEmail] = useState('admin@zdspgc.edu.ph');
+  const [email, setEmail] = useState('admin@attenda.edu');
   const [password, setPassword] = useState('admin123');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
@@ -458,11 +458,6 @@ function SignIn() {
               <div className="flex gap-3">
                 <ShieldCheck className="mt-0.5 size-4 text-primary shrink-0" />
                 <div>
-                  <div className="text-[12px] font-bold text-foreground">Admin Credentials</div>
-                  <p className="mt-1 text-[11px] leading-5 text-muted-foreground">
-                    Email: <code className="font-mono font-bold text-foreground">admin@attenda.edu</code><br />
-                    Password: <code className="font-mono font-bold text-foreground">admin123</code>
-                  </p>
                 </div>
               </div>
             </div>
@@ -591,7 +586,7 @@ function AppHeader({ location, onOpenMobile }: { location: string; onOpenMobile?
           >
             <Menu className="size-5" />
           </button>
-          
+
           <div className="md:hidden flex items-center">
             <Logo size="sm" />
           </div>
@@ -1629,9 +1624,8 @@ function PrintStudentQrCardsModal({ event, token, onClose }: { event: Event; tok
                     return (
                       <label
                         key={s.id}
-                        className={`flex items-center gap-3 rounded-lg p-2.5 cursor-pointer transition-colors ${
-                          checked ? 'bg-primary/10 border border-primary/30' : 'hover:bg-muted border border-transparent'
-                        }`}
+                        className={`flex items-center gap-3 rounded-lg p-2.5 cursor-pointer transition-colors ${checked ? 'bg-primary/10 border border-primary/30' : 'hover:bg-muted border border-transparent'
+                          }`}
                       >
                         <input
                           type="checkbox"
@@ -1702,7 +1696,7 @@ function PrintStudentQrCardsModal({ event, token, onClose }: { event: Event; tok
                     </div>
                   </div>
                 ) : (
-                  <div className="text-xs text-muted-foreground text-center py-4">No cards selected yet.<br/>Use checkboxes or quick-select chips above.</div>
+                  <div className="text-xs text-muted-foreground text-center py-4">No cards selected yet.<br />Use checkboxes or quick-select chips above.</div>
                 )}
               </div>
 

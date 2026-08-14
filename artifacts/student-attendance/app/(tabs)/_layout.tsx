@@ -1,5 +1,5 @@
 import React, { useEffect } from 'react';
-import { Modal, Platform, Pressable, StyleSheet, Text, useColorScheme, View } from 'react-native';
+import { Appearance, Modal, Platform, Pressable, StyleSheet, Text, useColorScheme, View } from 'react-native';
 import { useColors } from '@/hooks/useColors';
 import { Feather } from '@expo/vector-icons';
 import { BlurView } from 'expo-blur';
@@ -12,8 +12,19 @@ import { useAttendance } from '@/context/AttendanceContext';
 // Custom brand colors are applied only on the ClassicTabLayout path (older iOS / Android / web).
 function TopKebabHeaderMenu() {
   const colors = useColors();
+  const colorScheme = useColorScheme();
+  const isDark = colorScheme === 'dark';
   const [menuOpen, setMenuOpen] = React.useState(false);
   const { account, logout } = useAttendance();
+
+  const toggleTheme = () => {
+    Appearance.setColorScheme(isDark ? 'light' : 'dark');
+  };
+
+  const handleSignOut = async () => {
+    setMenuOpen(false);
+    await logout();
+  };
 
   return (
     <>
@@ -32,59 +43,113 @@ function TopKebabHeaderMenu() {
         onRequestClose={() => setMenuOpen(false)}
       >
         <Pressable
-          style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-start', alignItems: 'flex-end', paddingTop: 56, paddingRight: 16 }}
+          style={{
+            flex: 1,
+            backgroundColor: 'rgba(0,0,0,0.5)',
+            justifyContent: 'flex-start',
+            alignItems: 'flex-end',
+            paddingTop: Platform.OS === 'ios' ? 56 : 48,
+            paddingRight: 16,
+          }}
           onPress={() => setMenuOpen(false)}
         >
-          <View style={{ width: 240, borderRadius: 16, backgroundColor: colors.card, borderWidth: 1, borderColor: colors.border, padding: 12, shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.2, shadowRadius: 8, elevation: 8 }}>
-            <View style={{ paddingBottom: 8, marginBottom: 8, borderBottomWidth: 1, borderBottomColor: colors.border }}>
-              <Text style={{ fontSize: 13, fontWeight: '700', color: colors.foreground }}>{account?.fullName || 'Student Portal'}</Text>
-              <Text style={{ fontSize: 10, fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace', color: colors.mutedForeground, marginTop: 2 }}>{account?.studentId || 'Certified Roster'}</Text>
+          <View
+            style={{
+              width: 250,
+              borderRadius: 16,
+              backgroundColor: colors.card,
+              borderWidth: 1,
+              borderColor: colors.border,
+              padding: 12,
+              shadowColor: '#000',
+              shadowOffset: { width: 0, height: 6 },
+              shadowOpacity: 0.25,
+              shadowRadius: 10,
+              elevation: 10,
+            }}
+          >
+            {/* User Header */}
+            <View style={{ paddingBottom: 10, marginBottom: 8, borderBottomWidth: 1, borderBottomColor: colors.border }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+                <View style={{ width: 34, height: 34, borderRadius: 17, backgroundColor: colors.secondary, alignItems: 'center', justifyContent: 'center' }}>
+                  <Text style={{ fontSize: 13, fontWeight: '800', color: colors.primary }}>
+                    {account?.fullName?.[0] || 'S'}
+                  </Text>
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={{ fontSize: 13, fontWeight: '800', color: colors.foreground }} numberOfLines={1}>
+                    {account?.fullName || 'Student Portal'}
+                  </Text>
+                  <Text style={{ fontSize: 10, fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace', color: colors.mutedForeground, marginTop: 1 }}>
+                    {account?.studentId || 'Certified Roster'}
+                  </Text>
+                </View>
+              </View>
             </View>
 
-            <Text style={{ fontSize: 9, fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace', fontWeight: '700', color: colors.mutedForeground, marginBottom: 6, textTransform: 'uppercase' }}>
-              Choices for Officer & Student
+            {/* References & Roster Access Section */}
+            <Text style={{ fontSize: 9, fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace', fontWeight: '800', color: colors.mutedForeground, marginBottom: 6, textTransform: 'uppercase', letterSpacing: 0.5 }}>
+              References & Roster Access
             </Text>
 
             <Pressable
-              style={{ flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 9, paddingHorizontal: 8, borderRadius: 8 }}
-              onPress={() => { setMenuOpen(false); router.push('/(tabs)'); }}
-            >
-              <Feather name="home" size={16} color={colors.primary} />
-              <Text style={{ fontSize: 13, fontWeight: '600', color: colors.foreground }}>Home Dashboard</Text>
-            </Pressable>
-
-            <Pressable
-              style={{ flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 9, paddingHorizontal: 8, borderRadius: 8 }}
+              style={({ pressed }) => [{ flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 8, paddingHorizontal: 8, borderRadius: 8, backgroundColor: pressed ? colors.muted : 'transparent' }]}
               onPress={() => { setMenuOpen(false); router.push('/(tabs)/profile'); }}
             >
-              <Feather name="user" size={16} color={colors.success} />
-              <Text style={{ fontSize: 13, fontWeight: '600', color: colors.foreground }}>Student QR Pass</Text>
+              <Feather name="credit-card" size={16} color={colors.primary} />
+              <Text style={{ fontSize: 13, fontWeight: '600', color: colors.foreground, flex: 1 }}>Student Digital QR Pass</Text>
+              <View style={{ backgroundColor: `${colors.primary}20`, paddingHorizontal: 5, paddingVertical: 2, borderRadius: 4 }}>
+                <Text style={{ fontSize: 9, fontWeight: '800', color: colors.primary }}>CARD</Text>
+              </View>
             </Pressable>
 
             <Pressable
-              style={{ flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 9, paddingHorizontal: 8, borderRadius: 8 }}
+              style={({ pressed }) => [{ flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 8, paddingHorizontal: 8, borderRadius: 8, backgroundColor: pressed ? colors.muted : 'transparent' }]}
               onPress={() => { setMenuOpen(false); router.push('/(tabs)/records'); }}
             >
-              <Feather name="list" size={16} color={colors.accent} />
+              <Feather name="list" size={16} color={colors.success} />
               <Text style={{ fontSize: 13, fontWeight: '600', color: colors.foreground }}>Attendance Records</Text>
             </Pressable>
 
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 6, paddingHorizontal: 8, marginTop: 2, marginBottom: 6, backgroundColor: colors.secondary, borderRadius: 8 }}>
+              <Feather name="check-circle" size={13} color={colors.success} />
+              <Text style={{ fontSize: 11, fontWeight: '700', color: colors.success }}>Certified Active Student</Text>
+            </View>
+
+            <View style={{ height: 1, backgroundColor: colors.border, marginVertical: 6 }} />
+
+            {/* Preferences Section */}
+            <Text style={{ fontSize: 9, fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace', fontWeight: '800', color: colors.mutedForeground, marginBottom: 6, textTransform: 'uppercase', letterSpacing: 0.5 }}>
+              Preferences
+            </Text>
+
             <Pressable
-              style={{ flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 9, paddingHorizontal: 8, borderRadius: 8 }}
-              onPress={() => { setMenuOpen(false); router.push('/(tabs)/settings'); }}
+              style={({ pressed }) => [{ flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 8, paddingHorizontal: 8, borderRadius: 8, backgroundColor: pressed ? colors.muted : 'transparent' }]}
+              onPress={toggleTheme}
             >
-              <Feather name="sliders" size={16} color={colors.inkSoft} />
-              <Text style={{ fontSize: 13, fontWeight: '600', color: colors.foreground }}>App Settings</Text>
+              <Feather name={isDark ? 'sun' : 'moon'} size={16} color={isDark ? '#f59e0b' : '#6366f1'} />
+              <Text style={{ fontSize: 13, fontWeight: '600', color: colors.foreground }}>
+                {isDark ? 'Switch to Light Mode' : 'Switch to Dark Mode'}
+              </Text>
             </Pressable>
 
-            <View style={{ height: 1, backgroundColor: colors.border, marginVertical: 8 }} />
-
             <Pressable
-              style={{ flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 9, paddingHorizontal: 8, borderRadius: 8 }}
-              onPress={() => { setMenuOpen(false); logout(); }}
+              style={({ pressed }) => [{ flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 8, paddingHorizontal: 8, borderRadius: 8, backgroundColor: pressed ? colors.muted : 'transparent' }]}
+              onPress={() => { setMenuOpen(false); router.push('/(tabs)/settings'); }}
+            >
+              <Feather name="sliders" size={16} color={colors.mutedForeground} />
+              <Text style={{ fontSize: 13, fontWeight: '600', color: colors.foreground }}>System Settings</Text>
+            </Pressable>
+
+            <View style={{ height: 1, backgroundColor: colors.border, marginVertical: 6 }} />
+
+            {/* Sign Out */}
+            <Pressable
+              style={({ pressed }) => [{ flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 8, paddingHorizontal: 8, borderRadius: 8, backgroundColor: pressed ? 'rgba(239,68,68,0.1)' : 'transparent' }]}
+              onPress={handleSignOut}
             >
               <Feather name="log-out" size={16} color="#ef4444" />
-              <Text style={{ fontSize: 13, fontWeight: '600', color: '#ef4444' }}>Sign Out</Text>
+              <Text style={{ fontSize: 13, fontWeight: '700', color: '#ef4444' }}>Sign out</Text>
             </Pressable>
           </View>
         </Pressable>
