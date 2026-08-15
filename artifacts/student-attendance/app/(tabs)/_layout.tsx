@@ -1,10 +1,11 @@
 import React, { useEffect } from 'react';
-import { Appearance, Modal, Platform, Pressable, StyleSheet, Text, useColorScheme, View } from 'react-native';
+import { Modal, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 import { useColors } from '@/hooks/useColors';
 import { Feather } from '@expo/vector-icons';
 import { BlurView } from 'expo-blur';
 import { router, Tabs } from 'expo-router';
 import { useAttendance } from '@/context/AttendanceContext';
+import { useTheme } from '@/context/ThemeContext';
 
 // IMPORTANT: iOS 26 uses NativeTabs for native tabs with liquid glass support.
 // NativeTabs intentionally does NOT use custom design tokens — liquid glass
@@ -12,14 +13,9 @@ import { useAttendance } from '@/context/AttendanceContext';
 // Custom brand colors are applied only on the ClassicTabLayout path (older iOS / Android / web).
 function TopKebabHeaderMenu() {
   const colors = useColors();
-  const colorScheme = useColorScheme();
-  const isDark = colorScheme === 'dark';
+  const { isDark, toggle: toggleTheme } = useTheme();
   const [menuOpen, setMenuOpen] = React.useState(false);
   const { account, logout } = useAttendance();
-
-  const toggleTheme = () => {
-    Appearance.setColorScheme(isDark ? 'light' : 'dark');
-  };
 
   const handleSignOut = async () => {
     setMenuOpen(false);
@@ -86,38 +82,6 @@ function TopKebabHeaderMenu() {
                 </View>
               </View>
             </View>
-
-            {/* References & Roster Access Section */}
-            <Text style={{ fontSize: 9, fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace', fontWeight: '800', color: colors.mutedForeground, marginBottom: 6, textTransform: 'uppercase', letterSpacing: 0.5 }}>
-              References & Roster Access
-            </Text>
-
-            <Pressable
-              style={({ pressed }) => [{ flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 8, paddingHorizontal: 8, borderRadius: 8, backgroundColor: pressed ? colors.muted : 'transparent' }]}
-              onPress={() => { setMenuOpen(false); router.push('/(tabs)/profile'); }}
-            >
-              <Feather name="credit-card" size={16} color={colors.primary} />
-              <Text style={{ fontSize: 13, fontWeight: '600', color: colors.foreground, flex: 1 }}>Student Digital QR Pass</Text>
-              <View style={{ backgroundColor: `${colors.primary}20`, paddingHorizontal: 5, paddingVertical: 2, borderRadius: 4 }}>
-                <Text style={{ fontSize: 9, fontWeight: '800', color: colors.primary }}>CARD</Text>
-              </View>
-            </Pressable>
-
-            <Pressable
-              style={({ pressed }) => [{ flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 8, paddingHorizontal: 8, borderRadius: 8, backgroundColor: pressed ? colors.muted : 'transparent' }]}
-              onPress={() => { setMenuOpen(false); router.push('/(tabs)/records'); }}
-            >
-              <Feather name="list" size={16} color={colors.success} />
-              <Text style={{ fontSize: 13, fontWeight: '600', color: colors.foreground }}>Attendance Records</Text>
-            </Pressable>
-
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 6, paddingHorizontal: 8, marginTop: 2, marginBottom: 6, backgroundColor: colors.secondary, borderRadius: 8 }}>
-              <Feather name="check-circle" size={13} color={colors.success} />
-              <Text style={{ fontSize: 11, fontWeight: '700', color: colors.success }}>Certified Active Student</Text>
-            </View>
-
-            <View style={{ height: 1, backgroundColor: colors.border, marginVertical: 6 }} />
-
             {/* Preferences Section */}
             <Text style={{ fontSize: 9, fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace', fontWeight: '800', color: colors.mutedForeground, marginBottom: 6, textTransform: 'uppercase', letterSpacing: 0.5 }}>
               Preferences
@@ -160,8 +124,7 @@ function TopKebabHeaderMenu() {
 
 function ClassicTabLayout() {
   const colors = useColors();
-  const colorScheme = useColorScheme();
-  const isDark = colorScheme === 'dark';
+  const { isDark } = useTheme();
   const isIOS = Platform.OS === 'ios';
   const isWeb = Platform.OS === 'web';
 
