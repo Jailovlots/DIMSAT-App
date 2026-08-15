@@ -46,19 +46,27 @@ export default function Dashboard() {
       </View>
 
       {/* Identity/Status card */}
-      <View style={[styles.heroCard, { backgroundColor: colors.primary }]}>
-        <View style={[styles.heroOrb, { backgroundColor: colors.accent }]} />
-        <Text style={[styles.heroOver, { color: colors.accent }]}>ACCOUNT STATUS</Text>
-        <View style={styles.heroRow}>
-          <Text style={[styles.heroTitle, { color: colors.primaryForeground }]}>
-            You're registered{'\n'}and accounted for.
-          </Text>
-          <IconCircle icon="shield-checkmark" color={colors.accent} />
-        </View>
-        <Text style={[styles.heroCopy, { color: colors.secondary }]}>
-          {account.studentId} · {account.program}
-        </Text>
-      </View>
+      {(() => {
+        const isPrimaryAccentSame = colors.primary === colors.accent;
+        const heroContrastColor = isPrimaryAccentSame ? colors.accentForeground : colors.accent;
+        const heroSubColor = isPrimaryAccentSame ? colors.accentForeground : colors.secondary;
+        const heroIconBg = isPrimaryAccentSame ? colors.secondary : colors.accent;
+        return (
+          <View style={[styles.heroCard, { backgroundColor: colors.primary }]}>
+            <View style={[styles.heroOrb, { backgroundColor: heroContrastColor }]} />
+            <Text style={[styles.heroOver, { color: heroContrastColor }]}>ACCOUNT STATUS</Text>
+            <View style={styles.heroRow}>
+              <Text style={[styles.heroTitle, { color: colors.primaryForeground }]}>
+                You're registered{'\n'}and accounted for.
+              </Text>
+              <IconCircle icon="shield-checkmark" color={heroIconBg} />
+            </View>
+            <Text style={[styles.heroCopy, { color: heroSubColor }]}>
+              {account.studentId} · {account.program}
+            </Text>
+          </View>
+        );
+      })()}
 
       {/* Featured Event */}
       <SectionTitle

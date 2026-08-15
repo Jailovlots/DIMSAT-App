@@ -1,5 +1,5 @@
 import React, { useEffect } from 'react';
-import { Platform } from 'react-native';
+import { Image, Platform } from 'react-native';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { KeyboardProvider } from 'react-native-keyboard-controller';
@@ -29,8 +29,32 @@ if (Platform.OS === 'web' && typeof document !== 'undefined') {
   const resolveUri = (asset: any) => {
     if (!asset) return '';
     if (typeof asset === 'string') return asset;
+    if (typeof asset === 'number') {
+      try {
+        const resolved = Image.resolveAssetSource(asset);
+        if (resolved?.uri) return resolved.uri;
+      } catch {
+        // Fall through
+      }
+    }
     if (typeof asset === 'object') return asset.uri || asset.default || asset.src || '';
     return '';
+  };
+
+  const cdn = {
+    feather: 'https://cdn.jsdelivr.net/npm/@expo/vector-icons@14.0.0/build/vendor/react-native-vector-icons/Fonts/Feather.ttf',
+    ionicons: 'https://cdn.jsdelivr.net/npm/@expo/vector-icons@14.0.0/build/vendor/react-native-vector-icons/Fonts/Ionicons.ttf',
+    material: 'https://cdn.jsdelivr.net/npm/@expo/vector-icons@14.0.0/build/vendor/react-native-vector-icons/Fonts/MaterialIcons.ttf',
+    materialCommunity: 'https://cdn.jsdelivr.net/npm/@expo/vector-icons@14.0.0/build/vendor/react-native-vector-icons/Fonts/MaterialCommunityIcons.ttf',
+    fontAwesome: 'https://cdn.jsdelivr.net/npm/@expo/vector-icons@14.0.0/build/vendor/react-native-vector-icons/Fonts/FontAwesome.ttf',
+  };
+
+  const makeSrc = (asset: any, cdnUrl: string) => {
+    const uri = resolveUri(asset);
+    if (uri && uri.trim().length > 0) {
+      return `url('${uri}') format('truetype'), url('${cdnUrl}') format('truetype')`;
+    }
+    return `url('${cdnUrl}') format('truetype')`;
   };
 
   const styleId = 'expo-vector-icons-web-styles';
@@ -38,24 +62,24 @@ if (Platform.OS === 'web' && typeof document !== 'undefined') {
     const style = document.createElement('style');
     style.id = styleId;
     style.type = 'text/css';
-    const featherUri = resolveUri(featherFont);
-    const ioniconsUri = resolveUri(ioniconsFont);
-    const materialUri = resolveUri(materialFont);
-    const materialCommunityUri = resolveUri(materialCommunityFont);
-    const fontAwesomeUri = resolveUri(fontAwesomeFont);
+    const featherSrc = makeSrc(featherFont, cdn.feather);
+    const ioniconsSrc = makeSrc(ioniconsFont, cdn.ionicons);
+    const materialSrc = makeSrc(materialFont, cdn.material);
+    const materialCommunitySrc = makeSrc(materialCommunityFont, cdn.materialCommunity);
+    const fontAwesomeSrc = makeSrc(fontAwesomeFont, cdn.fontAwesome);
 
     style.textContent = `
-      @font-face { font-family: 'Feather'; src: url('${featherUri}') format('truetype'); font-display: swap; }
-      @font-face { font-family: 'feather'; src: url('${featherUri}') format('truetype'); font-display: swap; }
-      @font-face { font-family: 'Ionicons'; src: url('${ioniconsUri}') format('truetype'); font-display: swap; }
-      @font-face { font-family: 'ionicons'; src: url('${ioniconsUri}') format('truetype'); font-display: swap; }
-      @font-face { font-family: 'MaterialIcons'; src: url('${materialUri}') format('truetype'); font-display: swap; }
-      @font-face { font-family: 'Material Icons'; src: url('${materialUri}') format('truetype'); font-display: swap; }
-      @font-face { font-family: 'material'; src: url('${materialUri}') format('truetype'); font-display: swap; }
-      @font-face { font-family: 'MaterialCommunityIcons'; src: url('${materialCommunityUri}') format('truetype'); font-display: swap; }
-      @font-face { font-family: 'material-community'; src: url('${materialCommunityUri}') format('truetype'); font-display: swap; }
-      @font-face { font-family: 'FontAwesome'; src: url('${fontAwesomeUri}') format('truetype'); font-display: swap; }
-      @font-face { font-family: 'fontawesome'; src: url('${fontAwesomeUri}') format('truetype'); font-display: swap; }
+      @font-face { font-family: 'Feather'; src: ${featherSrc}; font-display: swap; }
+      @font-face { font-family: 'feather'; src: ${featherSrc}; font-display: swap; }
+      @font-face { font-family: 'Ionicons'; src: ${ioniconsSrc}; font-display: swap; }
+      @font-face { font-family: 'ionicons'; src: ${ioniconsSrc}; font-display: swap; }
+      @font-face { font-family: 'MaterialIcons'; src: ${materialSrc}; font-display: swap; }
+      @font-face { font-family: 'Material Icons'; src: ${materialSrc}; font-display: swap; }
+      @font-face { font-family: 'material'; src: ${materialSrc}; font-display: swap; }
+      @font-face { font-family: 'MaterialCommunityIcons'; src: ${materialCommunitySrc}; font-display: swap; }
+      @font-face { font-family: 'material-community'; src: ${materialCommunitySrc}; font-display: swap; }
+      @font-face { font-family: 'FontAwesome'; src: ${fontAwesomeSrc}; font-display: swap; }
+      @font-face { font-family: 'fontawesome'; src: ${fontAwesomeSrc}; font-display: swap; }
     `;
     document.head.appendChild(style);
   }

@@ -131,11 +131,18 @@ type StaffUser = {
 function getStoredStaffUser(): StaffUser {
   try {
     const raw = localStorage.getItem('dimsat_user');
-    if (raw) return JSON.parse(raw) as StaffUser;
+    if (raw) {
+      const parsed = JSON.parse(raw) as StaffUser;
+      if (parsed.fullName === 'System Admin' || parsed.fullName === 'System') {
+        parsed.fullName = 'Admin';
+        localStorage.setItem('dimsat_user', JSON.stringify(parsed));
+      }
+      return parsed;
+    }
   } catch {
     // Fallback
   }
-  return { id: 0, fullName: 'System Admin', email: 'admin@zdspgc.edu.ph', role: 'super_admin' };
+  return { id: 0, fullName: 'Admin', email: 'admin@zdspgc.edu.ph', role: 'super_admin' };
 }
 
 function useGreeting() {
@@ -387,7 +394,7 @@ function SignIn() {
       if (!res.ok || !data.user) {
         // Fallback for demo/offline
         if (email.toLowerCase().includes('admin') || email.toLowerCase().includes('attenda')) {
-          const defaultAdmin: StaffUser = { id: 0, fullName: 'System Admin', email: email.trim(), role: 'super_admin' };
+          const defaultAdmin: StaffUser = { id: 0, fullName: 'Admin', email: email.trim(), role: 'super_admin' };
           localStorage.setItem('dimsat_user', JSON.stringify(defaultAdmin));
           setLocation('/dashboard');
           return;

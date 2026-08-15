@@ -78,22 +78,29 @@ export default function Records() {
       ) : (
         <>
           {/* Overall summary card */}
-          <View style={[styles.summaryCard, { backgroundColor: colors.primary }]}>
-            <View style={[styles.heroOrb, { backgroundColor: colors.accent }]} />
-            <Text style={[styles.summaryEyebrow, { color: colors.accent }]}>OVERALL ATTENDANCE</Text>
-            <View style={styles.summaryRow}>
-              <Text style={[styles.summaryTitle, { color: colors.primaryForeground }]}>
-                {completionPct}% completion
-              </Text>
-              <Feather name="shield" size={22} color={colors.accent} />
-            </View>
-            <View style={[styles.trackBg, { backgroundColor: `${colors.primaryForeground}25` }]}>
-              <View style={[styles.trackFill, { width: `${completionPct}%`, backgroundColor: colors.accent }]} />
-            </View>
-            <Text style={[styles.summarySub, { color: colors.secondary }]}>
-              {totalPresent} of {totalSessions} sessions recorded across {events.length} event{events.length !== 1 ? 's' : ''}
-            </Text>
-          </View>
+          {(() => {
+            const isPrimaryAccentSame = colors.primary === colors.accent;
+            const cardContrastColor = isPrimaryAccentSame ? colors.accentForeground : colors.accent;
+            const cardSubColor = isPrimaryAccentSame ? colors.accentForeground : colors.secondary;
+            return (
+              <View style={[styles.summaryCard, { backgroundColor: colors.primary }]}>
+                <View style={[styles.heroOrb, { backgroundColor: cardContrastColor }]} />
+                <Text style={[styles.summaryEyebrow, { color: cardContrastColor }]}>OVERALL ATTENDANCE</Text>
+                <View style={styles.summaryRow}>
+                  <Text style={[styles.summaryTitle, { color: colors.primaryForeground }]}>
+                    {completionPct}% completion
+                  </Text>
+                  <Feather name="shield" size={22} color={cardContrastColor} />
+                </View>
+                <View style={[styles.trackBg, { backgroundColor: `${colors.primaryForeground}25` }]}>
+                  <View style={[styles.trackFill, { width: `${completionPct}%`, backgroundColor: cardContrastColor }]} />
+                </View>
+                <Text style={[styles.summarySub, { color: cardSubColor }]}>
+                  {totalPresent} of {totalSessions} sessions recorded across {events.length} event{events.length !== 1 ? 's' : ''}
+                </Text>
+              </View>
+            );
+          })()}
 
           {/* Per-event records */}
           {events.map((event) => (

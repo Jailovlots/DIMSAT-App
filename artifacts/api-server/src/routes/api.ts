@@ -1870,12 +1870,12 @@ router.post("/auth/staff/login", async (req, res, next) => {
 
     const cleanEmail = email.trim().toLowerCase();
 
-    // Default System Admin login check
+    // Default Admin login check
     if (cleanEmail === "admin@attenda.edu" && password === "admin123") {
       res.json({
         user: {
           id: 0,
-          fullName: "System Admin",
+          fullName: "Admin",
           email: cleanEmail,
           role: "super_admin",
         },
