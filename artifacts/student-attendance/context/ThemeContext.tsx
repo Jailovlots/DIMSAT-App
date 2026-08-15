@@ -102,9 +102,8 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
     [preference, resolvedTheme, setPreference, toggle],
   );
 
-  // Don't render until hydrated to avoid a flash
-  if (!loaded) return null;
-
+  // Always render the Provider – before AsyncStorage resolves we use the
+  // system scheme as the default so child components never get a null context.
   return <ThemeContext.Provider value={value}>{children}</ThemeContext.Provider>;
 }
 
