@@ -1888,7 +1888,7 @@ function PrintStudentQrCardsModal({ event, token, onClose }: { event: Event; tok
                 </div>
                 {studentsToPrint.length > 0 && (
                   <div className="mt-3 text-[10px] text-muted-foreground font-mono font-bold">
-                    ≈ {Math.ceil(studentsToPrint.length / 8)} page{Math.ceil(studentsToPrint.length / 8) !== 1 ? 's' : ''} (8 cards / sheet)
+                    ≈ {Math.ceil(studentsToPrint.length / 10)} page{Math.ceil(studentsToPrint.length / 10) !== 1 ? 's' : ''} (10 cards / A4 sheet)
                   </div>
                 )}
               </div>
@@ -1933,7 +1933,7 @@ function PrintStudentQrCardsModal({ event, token, onClose }: { event: Event; tok
                   className="w-full h-11 text-sm font-extrabold shadow-md"
                 >
                   <Printer className="size-4" />
-                  Print {studentsToPrint.length > 0 ? `All ${studentsToPrint.length} Selected Cards (${Math.ceil(studentsToPrint.length / 8)} Pages)` : 'Selected Cards'}
+                  Print {studentsToPrint.length > 0 ? `All ${studentsToPrint.length} Cards (${Math.ceil(studentsToPrint.length / 10)} A4 Pages)` : 'Selected Cards'}
                 </Button>
                 <Button variant="ghost" onClick={onClose} className="w-full">Cancel</Button>
               </div>
@@ -1942,12 +1942,12 @@ function PrintStudentQrCardsModal({ event, token, onClose }: { event: Event; tok
         </div>
       </div>
 
-      {/* PRINT-ONLY MULTI-PAGE CONTAINER (8 cards per Letter-size sheet) */}
+      {/* PRINT-ONLY MULTI-PAGE CONTAINER (10 cards per A4 sheet — 2 cols × 5 rows) */}
       <div className="hidden print:block print-student-cards-root">
         <style>{`
           @page {
-            size: letter portrait;
-            margin: 0.2in 0.15in;
+            size: A4 portrait;
+            margin: 0.18in 0.18in;
           }
           @media print {
             html, body {
@@ -1976,12 +1976,12 @@ function PrintStudentQrCardsModal({ event, token, onClose }: { event: Event; tok
               break-after: page !important;
               page-break-inside: avoid !important;
               break-inside: avoid !important;
-              min-height: 10.3in !important;
+              min-height: 11.3in !important;
               display: flex !important;
               flex-direction: column !important;
               justify-content: flex-start !important;
               box-sizing: border-box !important;
-              padding: 0.1in 0 !important;
+              padding: 0.08in 0 !important;
             }
             .print-page-wrapper:last-of-type {
               page-break-after: auto !important;
@@ -1989,19 +1989,19 @@ function PrintStudentQrCardsModal({ event, token, onClose }: { event: Event; tok
             }
             .print-grid {
               display: grid !important;
-              grid-template-columns: repeat(2, 3.45in) !important;
-              grid-auto-rows: 2.1in !important;
-              gap: 0.22in 0.3in !important;
+              grid-template-columns: repeat(2, 3.8in) !important;
+              grid-auto-rows: 1.95in !important;
+              gap: 0.14in 0.2in !important;
               justify-content: center !important;
               margin: 0 auto !important;
             }
             .id-card-print {
-              width: 3.45in !important;
-              height: 2.1in !important;
+              width: 3.8in !important;
+              height: 1.95in !important;
               box-sizing: border-box !important;
               border: 1.5pt solid #0f172a !important;
-              border-radius: 8pt !important;
-              padding: 0.1in !important;
+              border-radius: 7pt !important;
+              padding: 0.08in 0.1in !important;
               background: white !important;
               page-break-inside: avoid !important;
               break-inside: avoid !important;
@@ -2015,8 +2015,8 @@ function PrintStudentQrCardsModal({ event, token, onClose }: { event: Event; tok
         <div>
           {(() => {
             const pages: Student[][] = [];
-            for (let i = 0; i < studentsToPrint.length; i += 8) {
-              pages.push(studentsToPrint.slice(i, i + 8));
+            for (let i = 0; i < studentsToPrint.length; i += 10) {
+              pages.push(studentsToPrint.slice(i, i + 10));
             }
             return pages.map((pageStudents, pIdx) => (
               <div key={pIdx} className="print-page-wrapper">
@@ -2056,7 +2056,7 @@ function PrintStudentQrCardsModal({ event, token, onClose }: { event: Event; tok
 
                         {/* QR Code */}
                         <div className="rounded-md border border-slate-900 bg-white p-0.5 shrink-0">
-                          <QRCodeSVG value={`ZDSPGC_PERMANENT_QR_01:${s.studentId}`} size={84} level="M" />
+                          <QRCodeSVG value={`ZDSPGC_PERMANENT_QR_01:${s.studentId}`} size={72} level="M" />
                         </div>
                       </div>
 
