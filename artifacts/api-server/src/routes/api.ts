@@ -843,7 +843,8 @@ router.post("/student/photo", async (req, res, next) => {
       return;
     }
 
-    const maxUploads = student.maxPhotoUploads ?? 2;
+    const settingsRows = await db.select().from(systemSettingsTable).limit(1);
+    const maxUploads = settingsRows[0]?.maxPhotoUploads ?? 2;
     const currentCount = student.profileUploadCount ?? 0;
 
     if (currentCount >= maxUploads) {
@@ -1086,6 +1087,43 @@ router.patch("/events/:id/status", async (req, res, next) => {
     });
 
     res.json(await buildEventPayload(updated));
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.delete("/events/:id", async (req, res, next) => {
+  try {
+    const eventId = Number(req.params["id"]);
+
+    const existingRows = await db
+      .select()
+      .from(eventsTable)
+      .where(eq(eventsTable.id, eventId))
+      .limit(1);
+
+    if (!existingRows[0]) {
+      res.status(404).json({ error: "Event not found." });
+      return;
+    }
+
+    const eventName = existingRows[0].name;
+
+    // Delete cascading references
+    await db.delete(qrAssignmentsTable).where(eq(qrAssignmentsTable.eventId, eventId));
+    await db.delete(attendanceRecordsTable).where(eq(attendanceRecordsTable.eventId, eventId));
+    await db.delete(attendanceSessionsTable).where(eq(attendanceSessionsTable.eventId, eventId));
+    await db.delete(eventQrTokensTable).where(eq(eventQrTokensTable.eventId, eventId));
+    await db.delete(eventsTable).where(eq(eventsTable.id, eventId));
+
+    await db.insert(auditLogsTable).values({
+      action: "DELETE_EVENT",
+      entityType: "event",
+      entityId: String(eventId),
+      details: `Deleted event #${eventId}: "${eventName}" and all associated session records`,
+    });
+
+    res.json({ success: true, message: `Event "${eventName}" deleted successfully.` });
   } catch (err) {
     next(err);
   }

@@ -1328,8 +1328,12 @@ function Events() {
   const q = useListEvents();
   const create = useCreateEvent();
   const qr = useGenerateEventQr();
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
   const [showCreate, setShowCreate] = useState(false);
   const [editingEvent, setEditingEvent] = useState<Event | null>(null);
+  const [eventToDelete, setEventToDelete] = useState<Event | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
   const [printQrEvent, setPrintQrEvent] = useState<{ event: Event; token: string } | null>(null);
   const [printStudentCardsEvent, setPrintStudentCardsEvent] = useState<{ event: Event; token: string } | null>(null);
   const events = q.data || [];
@@ -1345,6 +1349,29 @@ function Events() {
       q.refetch();
     } catch {
       // ignore
+    }
+  };
+
+  const handleDeleteEvent = async () => {
+    if (!eventToDelete) return;
+    setIsDeleting(true);
+    try {
+      const res = await fetch(`/api/events/${eventToDelete.id}`, { method: 'DELETE' });
+      if (res.ok) {
+        toast({ title: 'Event Deleted', description: `Successfully deleted "${eventToDelete.name}".` });
+        queryClient.invalidateQueries({ queryKey: getListEventsQueryKey() });
+        queryClient.invalidateQueries({ queryKey: getGetDashboardQueryKey() });
+        queryClient.invalidateQueries({ queryKey: getListAttendanceQueryKey() });
+        setEventToDelete(null);
+        q.refetch();
+      } else {
+        const err = await res.json().catch(() => ({}));
+        toast({ title: 'Error', description: err.error || 'Failed to delete event.', variant: 'destructive' });
+      }
+    } catch {
+      toast({ title: 'Network Error', description: 'Failed to communicate with the server.', variant: 'destructive' });
+    } finally {
+      setIsDeleting(false);
     }
   };
 
@@ -1401,7 +1428,7 @@ function Events() {
                   onClick={() => setEditingEvent(e)}
                   className="gap-1 text-xs font-bold"
                 >
-                  <Settings2 className="size-3.5 text-primary" /> Edit Event
+                  <Settings2 className="size-3.5 text-primary" /> Edit
                 </Button>
                 <Button
                   variant="soft"
@@ -1417,7 +1444,16 @@ function Events() {
                   data-testid={`button-generate-student-cards-${e.id}`}
                   onClick={() => qr.mutate({ eventId: e.id }, { onSuccess: result => setPrintStudentCardsEvent({ event: e, token: result.token }) })}
                 >
-                  <GraduationCap className="size-3.5 text-primary" /> Student Passes (ID Card)
+                  <GraduationCap className="size-3.5 text-primary" /> Student Passes
+                </Button>
+                <Button
+                  variant="danger"
+                  onClick={() => setEventToDelete(e)}
+                  className="gap-1 text-xs font-bold px-3"
+                  title="Delete Event"
+                  data-testid={`button-delete-event-${e.id}`}
+                >
+                  <Trash2 className="size-3.5" /> Delete
                 </Button>
               </div>
             </div>
@@ -1427,6 +1463,36 @@ function Events() {
 
       {showCreate && <EventDialog close={() => setShowCreate(false)} create={create} />}
       {editingEvent && <EditEventDialog event={editingEvent} close={() => setEditingEvent(null)} refetch={() => q.refetch()} />}
+
+      {/* Delete Confirmation Modal */}
+      {eventToDelete && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-sidebar/50 p-4">
+          <div className="w-full max-w-md rounded-2xl border border-card-border bg-card p-6 shadow-2xl animate-in fade-in zoom-in-95 duration-150">
+            <div className="flex items-center gap-3">
+              <div className="rounded-full bg-destructive/12 p-3 text-destructive shrink-0">
+                <Trash2 className="size-6" />
+              </div>
+              <div>
+                <h3 className="text-base font-extrabold text-foreground">Delete Event?</h3>
+                <p className="text-xs text-muted-foreground">Permanent action cannot be undone</p>
+              </div>
+            </div>
+
+            <p className="mt-4 text-xs text-foreground leading-relaxed">
+              Are you sure you want to delete <strong className="font-bold text-destructive">{eventToDelete.name}</strong>?
+              All associated attendance sessions, QR codes, and student attendance logs for this event will be permanently removed from the system.
+            </p>
+
+            <div className="mt-6 flex justify-end gap-2">
+              <Button variant="ghost" onClick={() => setEventToDelete(null)} disabled={isDeleting}>Cancel</Button>
+              <Button variant="danger" onClick={handleDeleteEvent} disabled={isDeleting}>
+                {isDeleting ? <Loader2 className="size-4 animate-spin" /> : <Trash2 className="size-4" />}
+                {isDeleting ? 'Deleting…' : 'Yes, Delete Event'}
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {printQrEvent && (
         <PrintableQrModal event={printQrEvent.event} token={printQrEvent.token} onClose={() => setPrintQrEvent(null)} />
@@ -1563,11 +1629,36 @@ function EditEventDialog({ event, close, refetch }: { event: Event; close: () =>
         </div>
 
         {/* Footer */}
-        <div className="flex justify-end gap-2 px-6 py-4 border-t border-border shrink-0">
-          <Button variant="ghost" onClick={close}>Cancel</Button>
-          <Button disabled={!name || !date || !venue || isSaving} onClick={submit}>
-            {isSaving ? 'Saving Changes…' : 'Save Event Changes'}
+        <div className="flex justify-between items-center px-6 py-4 border-t border-border shrink-0">
+          <Button
+            type="button"
+            variant="danger"
+            onClick={async () => {
+              if (window.confirm(`Are you sure you want to permanently delete event "${event.name}" and all its attendance sessions and records?`)) {
+                try {
+                  const res = await fetch(`/api/events/${event.id}`, { method: 'DELETE' });
+                  if (res.ok) {
+                    refetch();
+                    close();
+                  } else {
+                    const err = await res.json().catch(() => ({}));
+                    alert(err.error || 'Failed to delete event.');
+                  }
+                } catch {
+                  alert('Network error while deleting event.');
+                }
+              }
+            }}
+            className="gap-1 text-xs font-bold"
+          >
+            <Trash2 className="size-3.5" /> Delete Event
           </Button>
+          <div className="flex gap-2">
+            <Button variant="ghost" onClick={close}>Cancel</Button>
+            <Button disabled={!name || !date || !venue || isSaving} onClick={submit}>
+              {isSaving ? 'Saving Changes…' : 'Save Event Changes'}
+            </Button>
+          </div>
         </div>
       </div>
     </div>
@@ -2100,22 +2191,28 @@ function EventDialog({ close, create }: { close: () => void; create: ReturnType<
 
 function Attendance() {
   const [search, setSearch] = useState('');
+  const [selectedEvent, setSelectedEvent] = useState('all');
   const [session, setSession] = useState('all');
   const [yearLevel, setYearLevel] = useState('all');
   const [program, setProgram] = useState('all');
+  const [sortBy, setSortBy] = useState('time-desc');
+
+  const eventsQ = useListEvents();
+  const eventsList = eventsQ.data || [];
 
   const q = useListAttendance({ search: search || undefined, session: session === 'all' ? undefined : session });
   const rawRecords = q.data || [];
 
-  // Filter records by search, session, year level, and program
+  // Filter and sort records by search, event, session, year level, and program
   const records = useMemo(() => {
-    return rawRecords.filter(r => {
+    const filtered = rawRecords.filter(r => {
       const matchesSearch = !search ||
         r.studentName.toLowerCase().includes(search.toLowerCase()) ||
         r.studentId.toLowerCase().includes(search.toLowerCase()) ||
         r.eventName.toLowerCase().includes(search.toLowerCase()) ||
         r.officerName.toLowerCase().includes(search.toLowerCase());
 
+      const matchesEvent = selectedEvent === 'all' || r.eventName.toLowerCase() === selectedEvent.toLowerCase();
       const matchesSession = session === 'all' || r.sessionName === session;
 
       const rYear = String(r.yearLevel || '').toLowerCase();
@@ -2131,11 +2228,50 @@ function Attendance() {
         rProg.toLowerCase().includes(program.toLowerCase()) ||
         r.studentName.toLowerCase().includes(program.toLowerCase());
 
-      return matchesSearch && matchesSession && matchesYear && matchesProg;
+      return matchesSearch && matchesEvent && matchesSession && matchesYear && matchesProg;
     });
-  }, [rawRecords, search, session, yearLevel, program]);
+
+    return filtered.sort((a, b) => {
+      if (sortBy === 'time-desc') return new Date(b.scannedAt).getTime() - new Date(a.scannedAt).getTime();
+      if (sortBy === 'time-asc') return new Date(a.scannedAt).getTime() - new Date(b.scannedAt).getTime();
+      if (sortBy === 'name-asc') return a.studentName.localeCompare(b.studentName);
+      if (sortBy === 'name-desc') return b.studentName.localeCompare(a.studentName);
+      if (sortBy === 'id-asc') return a.studentId.localeCompare(b.studentId);
+      if (sortBy === 'event-asc') return a.eventName.localeCompare(b.eventName);
+      return 0;
+    });
+  }, [rawRecords, search, selectedEvent, session, yearLevel, program, sortBy]);
 
   const present = records.filter(x => x.status === 'present').length;
+
+  const handleExportCSV = () => {
+    if (!records.length) {
+      alert('No attendance records to export with the current filters.');
+      return;
+    }
+
+    const exportData = records.map((r, idx) => ({
+      '#': idx + 1,
+      'Student ID': r.studentId,
+      'Student Name': r.studentName,
+      'Year Level': r.yearLevel,
+      'Program': ((r as unknown as Record<string, unknown>).program as string) || 'BSIS',
+      'Event Name': r.eventName,
+      'Session': r.sessionName,
+      'Time Scanned': new Date(r.scannedAt).toLocaleString(),
+      'Verified Officer': r.officerName,
+      'Attendance Status': r.status.toUpperCase(),
+    }));
+
+    const ws = XLSX.utils.json_to_sheet(exportData);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Attendance_Records');
+
+    const sanitizedEvent = selectedEvent === 'all' ? 'All_Events' : selectedEvent.replace(/[^a-zA-Z0-9_-]/g, '_');
+    const filename = `Attendance_Report_${sanitizedEvent}_${new Date().toISOString().slice(0, 10)}.csv`;
+
+    XLSX.writeFile(wb, filename, { bookType: 'csv' });
+  };
 
   return (
     <AppShell>
@@ -2143,7 +2279,7 @@ function Attendance() {
       <PageHeader
         eyebrow="Records / attendance"
         title="Attendance Records"
-        description="View and print official attendance records filtered by session, date, program, or year level."
+        description="View, sort, filter, print, and export official attendance records by event, session, date, program, or year level."
       />
 
       {/* Summary Cards */}
@@ -2162,10 +2298,10 @@ function Attendance() {
         </div>
       </div>
 
-      {/* Search Bar & Filter Controls Row with Print Button beside them */}
+      {/* Search Bar & Filter Controls Row with Export CSV and Print Button beside them */}
       <div className="mb-5 flex flex-col gap-2.5 lg:flex-row lg:items-center print:hidden">
         {/* Search Bar Input */}
-        <div className="relative flex-1">
+        <div className="relative flex-1 min-w-[200px]">
           <Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
           <input
             data-testid="input-attendance-search"
@@ -2176,8 +2312,22 @@ function Attendance() {
           />
         </div>
 
-        {/* Filter Dropdowns & Print Button Beside Search Bar */}
+        {/* Filter Dropdowns, Event Selector, Sorting, CSV Export & Print Buttons */}
         <div className="flex flex-wrap items-center gap-2">
+          {/* Event Filter Select */}
+          <select
+            data-testid="select-attendance-event"
+            value={selectedEvent}
+            onChange={e => setSelectedEvent(e.target.value)}
+            className="h-10 rounded-lg border border-input bg-card px-3 text-xs font-bold outline-none focus:border-primary cursor-pointer max-w-[180px]"
+            title="Filter by Event"
+          >
+            <option value="all">All Events</option>
+            {eventsList.map((ev) => (
+              <option key={ev.id} value={ev.name}>{ev.name}</option>
+            ))}
+          </select>
+
           {/* Session Select */}
           <select
             data-testid="select-attendance-session"
@@ -2219,15 +2369,42 @@ function Attendance() {
             <option value="BSIS">BSIS</option>
             <option value="BSED">BPED</option>
             <option value="BEED">ACT-AD</option>
-            
           </select>
 
-          {/* Print Attendance Report Button placed right beside the search bar & filters */}
+          {/* Sorting Dropdown */}
+          <select
+            data-testid="select-attendance-sort"
+            value={sortBy}
+            onChange={e => setSortBy(e.target.value)}
+            className="h-10 rounded-lg border border-input bg-card px-3 text-xs font-bold outline-none focus:border-primary cursor-pointer"
+            title="Sort Attendance Records"
+          >
+            <option value="time-desc">Time (Newest First)</option>
+            <option value="time-asc">Time (Oldest First)</option>
+            <option value="name-asc">Student (A–Z)</option>
+            <option value="name-desc">Student (Z–A)</option>
+            <option value="id-asc">Student ID (Asc)</option>
+            <option value="event-asc">Event Name (A–Z)</option>
+          </select>
+
+          {/* Export CSV Button placed beside Print Button */}
+          <Button
+            variant="outline"
+            data-testid="button-export-csv-attendance"
+            onClick={handleExportCSV}
+            className="h-10 px-3.5 shrink-0 shadow-sm gap-1.5 font-bold"
+            title="Download CSV Spreadsheet"
+          >
+            <Download className="size-4 text-primary" />
+            Export CSV
+          </Button>
+
+          {/* Print Attendance Report Button */}
           <Button
             variant="primary"
             data-testid="button-print-attendance"
             onClick={() => window.print()}
-            className="h-10 px-4 shrink-0 shadow-sm"
+            className="h-10 px-4 shrink-0 shadow-sm gap-1.5"
           >
             <Printer className="size-4" />
             Print Report
@@ -2326,22 +2503,26 @@ function Attendance() {
           </div>
 
           {/* Filter & Metric Summary Box */}
-          <div className="mb-4 rounded-lg border border-slate-300 bg-slate-50 p-2.5 text-xs grid grid-cols-4 gap-2">
+          <div className="mb-4 rounded-lg border border-slate-300 bg-slate-50 p-2.5 text-xs grid grid-cols-5 gap-2">
+            <div>
+              <span className="font-mono text-[8.5px] text-slate-500 block uppercase">Event Filter</span>
+              <strong className="text-slate-900 truncate block">{selectedEvent === 'all' ? 'All Events' : selectedEvent}</strong>
+            </div>
             <div>
               <span className="font-mono text-[8.5px] text-slate-500 block uppercase">Session Filter</span>
-              <strong className="text-slate-900">{session === 'all' ? 'All Sessions' : session}</strong>
+              <strong className="text-slate-900 truncate block">{session === 'all' ? 'All Sessions' : session}</strong>
             </div>
             <div>
               <span className="font-mono text-[8.5px] text-slate-500 block uppercase">Program Filter</span>
-              <strong className="text-slate-900">{program === 'all' ? 'All Programs' : program}</strong>
+              <strong className="text-slate-900 truncate block">{program === 'all' ? 'All Programs' : program}</strong>
             </div>
             <div>
-              <span className="font-mono text-[8.5px] text-slate-500 block uppercase">Year Level Filter</span>
-              <strong className="text-slate-900">{yearLevel === 'all' ? 'All Year Levels' : `Year ${yearLevel}`}</strong>
+              <span className="font-mono text-[8.5px] text-slate-500 block uppercase">Year Level</span>
+              <strong className="text-slate-900 truncate block">{yearLevel === 'all' ? 'All Years' : `Year ${yearLevel}`}</strong>
             </div>
             <div>
               <span className="font-mono text-[8.5px] text-slate-500 block uppercase">Verified Present</span>
-              <strong className="text-emerald-800 font-black">{present} / {records.length} Records</strong>
+              <strong className="text-emerald-800 font-black truncate block">{present} / {records.length} Records</strong>
             </div>
           </div>
 
