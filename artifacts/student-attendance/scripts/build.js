@@ -145,14 +145,16 @@ async function startMetro(expoPublicDomain, expoPublicReplId) {
     console.log(`Setting EXPO_PUBLIC_REPL_ID=${expoPublicReplId}`);
   }
 
+  const pnpmCmd = process.platform === 'win32' ? 'pnpm.cmd' : 'pnpm';
   metroProcess = spawn(
-    'pnpm',
+    pnpmCmd,
     ['exec', 'expo', 'start', '--no-dev', '--minify', '--localhost'],
     {
       stdio: ['ignore', 'pipe', 'pipe'],
       detached: false,
       cwd: projectRoot,
       env,
+      shell: process.platform === 'win32',
     },
   );
 
@@ -403,9 +405,13 @@ async function downloadAssets(assets, timestamp) {
     const output = path.join(outputDir, asset.filename);
 
     try {
+      const cleanPath = decodedPath.replace(/^(\.\.[\/\\])+/, '');
       const candidates = [
-        path.join(projectRoot, decodedPath, asset.filename),
-        path.join(workspaceRoot, decodedPath, asset.filename),
+        path.resolve(projectRoot, decodedPath, asset.filename),
+        path.resolve(workspaceRoot, decodedPath, asset.filename),
+        path.resolve(projectRoot, cleanPath, asset.filename),
+        path.resolve(workspaceRoot, cleanPath, asset.filename),
+        path.resolve(workspaceRoot, 'node_modules', cleanPath, asset.filename),
       ];
       const found = candidates.find((p) => fs.existsSync(p));
       if (!found) {

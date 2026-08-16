@@ -621,6 +621,58 @@ router.delete("/students/:id", async (req, res, next) => {
   }
 });
 
+router.patch("/students/:id", async (req, res, next) => {
+  try {
+    const id = Number(req.params["id"]);
+    if (isNaN(id)) {
+      res.status(400).json({ error: "Invalid student ID." });
+      return;
+    }
+
+    const { fullName, yearLevel, program, sex } = req.body as {
+      fullName?: string;
+      yearLevel?: string;
+      program?: string;
+      sex?: string;
+    };
+
+    const rows = await db
+      .select()
+      .from(certifiedStudentsTable)
+      .where(eq(certifiedStudentsTable.id, id))
+      .limit(1);
+
+    const student = rows[0];
+    if (!student) {
+      res.status(404).json({ error: "Student not found." });
+      return;
+    }
+
+    const updateFields: Record<string, any> = { updatedAt: new Date() };
+    if (fullName !== undefined && fullName.trim()) updateFields.fullName = fullName.trim();
+    if (yearLevel !== undefined && yearLevel.trim()) updateFields.yearLevel = yearLevel.trim();
+    if (program !== undefined && program.trim()) updateFields.program = program.trim();
+    if (sex !== undefined && sex.trim()) updateFields.sex = sex.trim();
+
+    const [updated] = await db
+      .update(certifiedStudentsTable)
+      .set(updateFields)
+      .where(eq(certifiedStudentsTable.id, id))
+      .returning();
+
+    await db.insert(auditLogsTable).values({
+      action: "UPDATE_STUDENT",
+      entityType: "student",
+      entityId: String(updated.studentId),
+      details: `Updated student record for ${updated.fullName} (${updated.studentId}): Year ${updated.yearLevel}, Program ${updated.program}`,
+    });
+
+    res.json({ message: "Student record updated successfully.", student: updated });
+  } catch (err) {
+    next(err);
+  }
+});
+
 router.post("/students/import", async (req, res, next) => {
   try {
     const { rows } = req.body as {
@@ -725,7 +777,106 @@ router.post("/students/import", async (req, res, next) => {
   }
 });
 
+// ─── STUDENT PROFILE & PHOTO (Mobile App Sync) ────────────────────────────────
+
+// GET /api/student/profile?studentId=xxx
+// Returns live certified student profile data for syncing to the mobile app
+router.get("/student/profile", async (req, res, next) => {
+  try {
+    const studentId = req.query["studentId"] as string;
+    if (!studentId?.trim()) {
+      res.status(400).json({ error: "studentId query param is required." });
+      return;
+    }
+
+    const rows = await db
+      .select()
+      .from(certifiedStudentsTable)
+      .where(eq(certifiedStudentsTable.studentId, studentId.trim().toUpperCase()))
+      .limit(1);
+
+    if (!rows[0]) {
+      res.status(404).json({ error: "Student not found." });
+      return;
+    }
+
+    const s = rows[0];
+    res.json({
+      studentId: s.studentId,
+      fullName: s.fullName,
+      yearLevel: s.yearLevel,
+      program: s.program,
+      sex: s.sex,
+      profilePhoto: s.profilePhoto ?? null,
+      profileUploadCount: s.profileUploadCount ?? 0,
+      status: s.status,
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// POST /api/student/photo
+// Called by mobile app when student uploads or changes their profile photo.
+// Saves the photo URL to the certified student record and increments upload count.
+router.post("/student/photo", async (req, res, next) => {
+  try {
+    const { studentId, profilePhoto } = req.body as {
+      studentId?: string;
+      profilePhoto?: string;
+    };
+
+    if (!studentId?.trim() || !profilePhoto?.trim()) {
+      res.status(400).json({ error: "studentId and profilePhoto are required." });
+      return;
+    }
+
+    const rows = await db
+      .select()
+      .from(certifiedStudentsTable)
+      .where(eq(certifiedStudentsTable.studentId, studentId.trim().toUpperCase()))
+      .limit(1);
+
+    const student = rows[0];
+    if (!student) {
+      res.status(404).json({ error: "Student not found in certified roster." });
+      return;
+    }
+
+    const maxUploads = student.maxPhotoUploads ?? 2;
+    const currentCount = student.profileUploadCount ?? 0;
+
+    if (currentCount >= maxUploads) {
+      res.status(403).json({ error: "Maximum profile photo uploads reached. Contact the admin to reset." });
+      return;
+    }
+
+    const newCount = currentCount + 1;
+
+    await db
+      .update(certifiedStudentsTable)
+      .set({
+        profilePhoto: profilePhoto.trim(),
+        profileUploadCount: newCount,
+        updatedAt: new Date(),
+      })
+      .where(eq(certifiedStudentsTable.studentId, studentId.trim().toUpperCase()));
+
+    await db.insert(auditLogsTable).values({
+      action: "STUDENT_PHOTO_UPLOAD",
+      entityType: "student",
+      entityId: student.studentId,
+      details: `Student ${student.fullName} (${student.studentId}) uploaded profile photo (${newCount}/${maxUploads})`,
+    });
+
+    res.json({ message: "Profile photo saved successfully.", profileUploadCount: newCount, maxPhotoUploads: maxUploads });
+  } catch (err) {
+    next(err);
+  }
+});
+
 // ─── EVENTS MANAGEMENT ────────────────────────────────────────────────────────
+
 
 async function buildEventPayload(event: typeof eventsTable.$inferSelect) {
   const sessions = await db

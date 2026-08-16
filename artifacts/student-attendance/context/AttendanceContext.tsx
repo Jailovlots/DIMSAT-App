@@ -98,6 +98,45 @@ export function AttendanceProvider({ children }: { children: ReactNode }) {
       });
   }, []);
 
+  // Sync active student profile details from backend server database
+  useEffect(() => {
+    if (!state.activeStudentId) return;
+    const studentId = state.activeStudentId;
+    fetch(`${API_URL}/student/profile?studentId=${encodeURIComponent(studentId)}`)
+      .then(async (res) => {
+        if (!res.ok) return;
+        const student = await res.json() as {
+          fullName?: string;
+          yearLevel?: string;
+          program?: string;
+          sex?: string;
+          profilePhoto?: string;
+          profileUploadCount?: number;
+        };
+        if (student && student.fullName) {
+          setState((prev) => {
+            const idx = prev.accounts.findIndex((a) => a.studentId === studentId);
+            if (idx === -1) return prev;
+            const existing = prev.accounts[idx];
+            const updated: Account = {
+              ...existing,
+              fullName: student.fullName ?? existing.fullName,
+              yearLevel: student.yearLevel ?? existing.yearLevel,
+              program: student.program ?? existing.program,
+              sex: student.sex ?? existing.sex,
+              photoUri: student.profilePhoto ?? existing.photoUri,
+              photoChanges: student.profileUploadCount ?? existing.photoChanges,
+            };
+            const nextAccounts = [...prev.accounts];
+            nextAccounts[idx] = updated;
+            AsyncStorage.setItem(STORAGE_KEY, JSON.stringify({ ...prev, accounts: nextAccounts })).catch(() => {});
+            return { ...prev, accounts: nextAccounts };
+          });
+        }
+      })
+      .catch(() => {});
+  }, [state.activeStudentId]);
+
   const persist = useCallback(async (next: StoredState) => {
     setState(next);
     await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(next));
@@ -201,6 +240,7 @@ export function AttendanceProvider({ children }: { children: ReactNode }) {
               program: data.student.program ?? '',
               sex: data.student.sex ?? '',
               photoUri: data.student.profilePhoto ?? state.accounts[existingIdx].photoUri,
+              photoChanges: data.student.profileUploadCount ?? state.accounts[existingIdx].photoChanges,
               password,
             }
           : {
@@ -245,7 +285,31 @@ export function AttendanceProvider({ children }: { children: ReactNode }) {
     if (current.photoChanges >= MAX_PROFILE_PHOTO_CHANGES) {
       return { ok: false, error: 'Maximum profile photo changes reached. Please contact the Admin.' };
     }
-    const nextAccount = { ...current, photoUri: uri, photoChanges: current.photoChanges + 1 };
+
+    let newCount = current.photoChanges + 1;
+
+    // Post photo directly to API server database in real-time
+    try {
+      const res = await fetch(`${API_URL}/student/photo`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          studentId: current.studentId,
+          profilePhoto: uri,
+        }),
+      });
+      const data = await res.json() as { error?: string; profileUploadCount?: number };
+      if (!res.ok) {
+        return { ok: false, error: data.error ?? 'Failed to upload profile photo to server.' };
+      }
+      if (data.profileUploadCount !== undefined) {
+        newCount = data.profileUploadCount;
+      }
+    } catch {
+      // Offline fallback
+    }
+
+    const nextAccount = { ...current, photoUri: uri, photoChanges: newCount };
     const accounts = state.accounts.map((item) => item.studentId === current.studentId ? nextAccount : item);
     await persist({ accounts, activeStudentId: current.studentId });
     return { ok: true };

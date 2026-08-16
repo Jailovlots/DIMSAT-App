@@ -748,10 +748,13 @@ function Students() {
   const [programFilter, setProgramFilter] = useState('all');
   const [yearFilter, setYearFilter] = useState('all');
   const [showImport, setShowImport] = useState(false);
+  const [editingStudent, setEditingStudent] = useState<Student | null>(null);
   const [deletingId, setDeletingId] = useState<number | null>(null);
 
   const q = useListStudents({ search: search || undefined, sort, program: programFilter === 'all' ? undefined : programFilter, yearLevel: yearFilter === 'all' ? undefined : yearFilter });
   const students = q.data || [];
+  const settingsQ = useGetSettings();
+  const maxPhotoUploads = settingsQ.data?.maxPhotoUploads ?? 2;
 
   const handleResetPhotoCount = async (id: number) => {
     try {
@@ -883,9 +886,13 @@ function Students() {
                   <tr data-testid={`row-student-${s.id}`} key={s.id} className="border-b border-border/70 last:border-0 hover:bg-muted/30">
                     <td className="px-5 py-3.5">
                       <div className="flex items-center gap-3">
-                        <div className="grid size-8 place-items-center rounded-full bg-primary/10 font-mono text-[10px] font-medium text-primary">
-                          {s.fullName.split(' ').map(x => x[0]).slice(0, 2).join('')}
-                        </div>
+                        {s.profilePhoto ? (
+                          <img src={s.profilePhoto} alt={s.fullName} className="size-8 rounded-full object-cover border border-primary/20 shrink-0" />
+                        ) : (
+                          <div className="grid size-8 place-items-center rounded-full bg-primary/10 font-mono text-[10px] font-medium text-primary shrink-0">
+                            {s.fullName.split(' ').map(x => x[0]).slice(0, 2).join('')}
+                          </div>
+                        )}
                         <div>
                           <div className="text-[12px] font-bold">{s.fullName}</div>
                           <div className="mt-0.5 font-mono text-[10px] text-muted-foreground">{s.studentId}</div>
@@ -902,7 +909,7 @@ function Students() {
                     </td>
                     <td className="px-5 py-3.5 text-right">
                       <div className="flex items-center justify-end gap-2">
-                        <span className="font-mono text-xs text-muted-foreground">Uploads: 0 / 2</span>
+                        <span className="font-mono text-xs text-muted-foreground">Uploads: {s.profileUploadCount ?? 0} / {maxPhotoUploads}</span>
                         <button
                           title="Reset Photo Upload Count"
                           onClick={() => handleResetPhotoCount(s.id)}
@@ -913,14 +920,23 @@ function Students() {
                       </div>
                     </td>
                     <td className="px-5 py-3.5 text-right">
-                      <button
-                        title="Remove from certified roster"
-                        disabled={deletingId === s.id}
-                        onClick={() => handleDeleteStudent(s.id, s.fullName)}
-                        className="inline-flex items-center gap-1 rounded-md border border-red-200 bg-red-50 px-2 py-1 text-[10px] font-bold text-red-600 hover:bg-red-100 disabled:opacity-50 dark:border-red-800 dark:bg-red-900/20 dark:text-red-400"
-                      >
-                        <X className="size-3" /> {deletingId === s.id ? 'Removing…' : 'Remove'}
-                      </button>
+                      <div className="flex items-center justify-end gap-1.5">
+                        <button
+                          title="Edit Year Level, Program, or details"
+                          onClick={() => setEditingStudent(s)}
+                          className="inline-flex items-center gap-1 rounded-md border border-border bg-background px-2.5 py-1 text-[10px] font-bold text-foreground hover:bg-muted hover:border-primary/45"
+                        >
+                          <Pencil className="size-3 text-primary" /> Edit
+                        </button>
+                        <button
+                          title="Remove from certified roster"
+                          disabled={deletingId === s.id}
+                          onClick={() => handleDeleteStudent(s.id, s.fullName)}
+                          className="inline-flex items-center gap-1 rounded-md border border-red-200 bg-red-50 px-2 py-1 text-[10px] font-bold text-red-600 hover:bg-red-100 disabled:opacity-50 dark:border-red-800 dark:bg-red-900/20 dark:text-red-400"
+                        >
+                          <X className="size-3" /> {deletingId === s.id ? 'Removing…' : 'Remove'}
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -931,7 +947,106 @@ function Students() {
       </div>
 
       {showImport && <ImportDialog onClose={() => setShowImport(false)} onImportSuccess={() => q.refetch()} />}
+      {editingStudent && <EditStudentDialog student={editingStudent} onClose={() => setEditingStudent(null)} onSuccess={() => q.refetch()} />}
     </AppShell>
+  );
+}
+
+function EditStudentDialog({ student, onClose, onSuccess }: { student: Student; onClose: () => void; onSuccess: () => void }) {
+  const [fullName, setFullName] = useState(student.fullName);
+  const [yearLevel, setYearLevel] = useState(String(student.yearLevel ?? '1'));
+  const [program, setProgram] = useState(student.program ?? 'BSIS');
+  const [sex, setSex] = useState(student.sex ?? 'Female');
+  const [isSaving, setIsSaving] = useState(false);
+
+  const handleSave = async () => {
+    setIsSaving(true);
+    try {
+      const res = await fetch(`/api/students/${student.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ fullName, yearLevel, program, sex }),
+      });
+      if (res.ok) {
+        onSuccess();
+        onClose();
+      } else {
+        const body = await res.json().catch(() => ({}));
+        alert((body as { error?: string }).error || 'Failed to update student details.');
+      }
+    } catch {
+      alert('Network error. Could not update student details.');
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-sidebar/50 p-4 backdrop-blur-sm">
+      <div className="w-full max-w-md rounded-2xl border border-card-border bg-card p-6 shadow-2xl">
+        <div className="flex justify-between items-center border-b border-border pb-3 mb-4">
+          <div>
+            <div className="font-mono text-[10px] uppercase tracking-wider text-primary font-bold">Manage Roster Entry</div>
+            <h2 className="text-lg font-extrabold text-foreground">Edit Student Information</h2>
+            <div className="font-mono text-[11px] text-muted-foreground mt-0.5">{student.studentId}</div>
+          </div>
+          <button onClick={onClose} className="rounded-lg p-1 text-muted-foreground hover:bg-muted"><X className="size-4" /></button>
+        </div>
+
+        <div className="grid gap-4">
+          <Field label="Full Name" value={fullName} onChange={setFullName} placeholder="e.g. HUSIN, HAJEJA" />
+
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="text-[11px] font-bold text-muted-foreground">Year Level</label>
+              <select
+                value={yearLevel}
+                onChange={e => setYearLevel(e.target.value)}
+                className="mt-1 h-10 w-full rounded-lg border border-input bg-background px-3 text-xs font-bold outline-none focus:border-primary"
+              >
+                <option value="1">Year 1</option>
+                <option value="2">Year 2</option>
+                <option value="3">Year 3</option>
+                <option value="4">Year 4</option>
+                <option value="5">Year 5</option>
+              </select>
+            </div>
+
+            <div>
+              <label className="text-[11px] font-bold text-muted-foreground">Program / Course</label>
+              <select
+                value={program}
+                onChange={e => setProgram(e.target.value)}
+                className="mt-1 h-10 w-full rounded-lg border border-input bg-background px-3 text-xs font-bold outline-none focus:border-primary"
+              >
+                <option value="BSIS">BSIS</option>
+                <option value="ACT-AD">ACT-AD</option>
+                <option value="BPED">BPED</option>
+              </select>
+            </div>
+          </div>
+
+          <div>
+            <label className="text-[11px] font-bold text-muted-foreground">Sex / Gender</label>
+            <select
+              value={sex}
+              onChange={e => setSex(e.target.value)}
+              className="mt-1 h-10 w-full rounded-lg border border-input bg-background px-3 text-xs font-bold outline-none focus:border-primary"
+            >
+              <option value="Female">Female</option>
+              <option value="Male">Male</option>
+            </select>
+          </div>
+        </div>
+
+        <div className="mt-6 flex justify-end gap-2 border-t border-border pt-4">
+          <Button variant="ghost" onClick={onClose}>Cancel</Button>
+          <Button disabled={!fullName || isSaving} onClick={handleSave}>
+            {isSaving ? 'Saving…' : 'Save Changes'}
+          </Button>
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -966,7 +1081,7 @@ function parseStudentRowLine(rawLine: string) {
   // e.g. 26DM0166, 2026-0001, 25DM0749
   const ID_RE = /^[A-Za-z0-9-]{4,18}$/.test.bind(/^[A-Za-z0-9-]{4,18}$/);
   const HAS_DIGIT = /\d/.test.bind(/\d/);
-  const PROGRAMS = ['ACT-AD', 'BSIS', 'BPED', 'BSED', 'BSHM', 'BSIT', 'ACT', 'BS', 'AB'];
+  const PROGRAMS = ['ACT-AD', 'BSIS', 'BPED'];
   const SEX_WORDS = ['male', 'female', 'm', 'f'];
   const YEAR_RE = /^[1-4]$/;
 
@@ -1695,7 +1810,9 @@ function PrintStudentQrCardsModal({ event, token, onClose }: { event: Event; tok
                         <div className="text-[9px] font-black uppercase truncate">{studentsToPrint[0].fullName}</div>
                         <div className="mt-1 font-mono text-[7px] text-slate-500">{studentsToPrint[0].studentId} · {studentsToPrint[0].program} · Yr {studentsToPrint[0].yearLevel}</div>
                       </div>
-                      <QRCodeSVG value={`ZDSPGC_PERMANENT_QR_01:${studentsToPrint[0].studentId}`} size={52} level="M" />
+                      <div className="rounded border border-slate-900 bg-white p-0.5 shrink-0">
+                        <QRCodeSVG value={`ZDSPGC_PERMANENT_QR_01:${studentsToPrint[0].studentId}`} size={76} level="M" />
+                      </div>
                     </div>
                     <div className="border-t border-slate-200 pt-1 flex items-center justify-between font-mono text-[6px] text-slate-400 uppercase">
                       <span>OFFICIAL STUDENT ATTENDANCE PASS</span>
@@ -1825,7 +1942,7 @@ function PrintStudentQrCardsModal({ event, token, onClose }: { event: Event; tok
 
                         {/* QR Code */}
                         <div className="rounded-md border border-slate-900 bg-white p-0.5 shrink-0">
-                          <QRCodeSVG value={`ZDSPGC_PERMANENT_QR_01:${s.studentId}`} size={62} level="M" />
+                          <QRCodeSVG value={`ZDSPGC_PERMANENT_QR_01:${s.studentId}`} size={84} level="M" />
                         </div>
                       </div>
 
@@ -2100,10 +2217,9 @@ function Attendance() {
           >
             <option value="all">All Programs</option>
             <option value="BSIS">BSIS</option>
-            <option value="BSED">BSED</option>
-            <option value="BEED">BEED</option>
-            <option value="BSHM">BSHM</option>
-            <option value="BSBA">BSBA</option>
+            <option value="BSED">BPED</option>
+            <option value="BEED">ACT-AD</option>
+            
           </select>
 
           {/* Print Attendance Report Button placed right beside the search bar & filters */}
