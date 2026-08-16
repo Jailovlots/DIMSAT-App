@@ -1741,6 +1741,13 @@ function PrintStudentQrCardsModal({ event, token, onClose }: { event: Event; tok
   const [yearFilter, setYearFilter] = useState('all');
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
 
+  // Auto-select all students by default once loaded so user can print all immediately
+  useEffect(() => {
+    if (students.length > 0 && selectedIds.size === 0) {
+      setSelectedIds(new Set(students.map((s) => s.id)));
+    }
+  }, [students]);
+
   // All programs/years derived from loaded data
   const allPrograms = Array.from(new Set(students.map((s) => s.program))).sort();
   const allYears = Array.from(new Set(students.map((s) => String(s.yearLevel)))).sort();
@@ -1770,8 +1777,11 @@ function PrintStudentQrCardsModal({ event, token, onClose }: { event: Event; tok
   const studentsToPrint = students.filter((s) => selectedIds.has(s.id));
 
   const handlePrint = () => {
-    if (!studentsToPrint.length) return;
-    setTimeout(() => window.print(), 50);
+    if (!studentsToPrint.length) {
+      alert('Please select at least one student card to print.');
+      return;
+    }
+    window.print();
   };
 
   return (
@@ -1816,10 +1826,10 @@ function PrintStudentQrCardsModal({ event, token, onClose }: { event: Event; tok
               {/* Select All / Clear Row */}
               <div className="flex items-center justify-between">
                 <div className="text-[10px] font-mono font-bold uppercase tracking-wider text-muted-foreground">
-                  Showing {filtered.length} · <span className="text-foreground">{selectedIds.size} selected</span>
+                  Showing {filtered.length} · <span className="text-foreground">{selectedIds.size} of {students.length} selected</span>
                 </div>
                 <div className="flex gap-2">
-                  <button onClick={selectAll} className="text-[11px] font-bold text-primary hover:underline">Select All Visible</button>
+                  <button onClick={selectAll} className="text-[11px] font-bold text-primary hover:underline">Select All Visible ({filtered.length})</button>
                   <span className="text-muted-foreground">·</span>
                   <button onClick={clearAll} className="text-[11px] font-bold text-muted-foreground hover:text-foreground hover:underline">Clear All</button>
                 </div>
@@ -1864,7 +1874,7 @@ function PrintStudentQrCardsModal({ event, token, onClose }: { event: Event; tok
               <div className="rounded-xl border border-border bg-muted/30 p-4">
                 <div className="text-[10px] font-mono font-bold uppercase tracking-widest text-primary mb-3">Print Summary</div>
                 <div className="text-3xl font-extrabold text-foreground">{studentsToPrint.length}</div>
-                <div className="text-xs text-muted-foreground mt-0.5">ID cards selected for printing</div>
+                <div className="text-xs text-muted-foreground mt-0.5">ID cards ready for printing</div>
                 <div className="mt-3 grid grid-cols-2 gap-1 text-[10px] font-mono">
                   {studentsToPrint.length > 0 && (
                     Array.from(new Set(studentsToPrint.map((s) => s.program))).map((prog) => (
@@ -1877,8 +1887,8 @@ function PrintStudentQrCardsModal({ event, token, onClose }: { event: Event; tok
                   )}
                 </div>
                 {studentsToPrint.length > 0 && (
-                  <div className="mt-3 text-[10px] text-muted-foreground font-mono">
-                    ≈ {Math.ceil(studentsToPrint.length / 8)} page{Math.ceil(studentsToPrint.length / 8) !== 1 ? 's' : ''} (8 cards/page)
+                  <div className="mt-3 text-[10px] text-muted-foreground font-mono font-bold">
+                    ≈ {Math.ceil(studentsToPrint.length / 8)} page{Math.ceil(studentsToPrint.length / 8) !== 1 ? 's' : ''} (8 cards / sheet)
                   </div>
                 )}
               </div>
@@ -1920,10 +1930,10 @@ function PrintStudentQrCardsModal({ event, token, onClose }: { event: Event; tok
                 <Button
                   onClick={handlePrint}
                   disabled={!studentsToPrint.length}
-                  className="w-full"
+                  className="w-full h-11 text-sm font-extrabold shadow-md"
                 >
                   <Printer className="size-4" />
-                  Print {studentsToPrint.length > 0 ? `${studentsToPrint.length} Selected Card${studentsToPrint.length !== 1 ? 's' : ''}` : 'Selected Cards'}
+                  Print {studentsToPrint.length > 0 ? `All ${studentsToPrint.length} Selected Cards (${Math.ceil(studentsToPrint.length / 8)} Pages)` : 'Selected Cards'}
                 </Button>
                 <Button variant="ghost" onClick={onClose} className="w-full">Cancel</Button>
               </div>
@@ -1932,25 +1942,33 @@ function PrintStudentQrCardsModal({ event, token, onClose }: { event: Event; tok
         </div>
       </div>
 
-      {/* PRINT-ONLY CONTAINER (Bond Paper Grid 0.1in margin, 8 cards per page) */}
-      <div className="hidden print:block print:fixed print:inset-0 print:z-[9999] print:bg-white print:p-0">
+      {/* PRINT-ONLY MULTI-PAGE CONTAINER (8 cards per Letter-size sheet) */}
+      <div className="hidden print:block print-student-cards-root">
         <style>{`
           @page {
             size: letter portrait;
-            margin: 0.1in;
+            margin: 0.2in 0.15in;
           }
           @media print {
-            body * {
-              visibility: hidden !important;
+            html, body {
+              height: auto !important;
+              overflow: visible !important;
+              background: white !important;
             }
-            .print-sheet-root, .print-sheet-root * {
+            body * {
+              visibility: hidden;
+            }
+            .print-student-cards-root,
+            .print-student-cards-root * {
               visibility: visible !important;
             }
-            .print-sheet-root {
+            .print-student-cards-root {
               position: absolute !important;
               left: 0 !important;
               top: 0 !important;
               width: 100% !important;
+              margin: 0 !important;
+              padding: 0 !important;
               background: white !important;
             }
             .print-page-wrapper {
@@ -1958,27 +1976,32 @@ function PrintStudentQrCardsModal({ event, token, onClose }: { event: Event; tok
               break-after: page !important;
               page-break-inside: avoid !important;
               break-inside: avoid !important;
-              margin-bottom: 0.2in !important;
-              padding: 0 !important;
+              min-height: 10.3in !important;
+              display: flex !important;
+              flex-direction: column !important;
+              justify-content: flex-start !important;
+              box-sizing: border-box !important;
+              padding: 0.1in 0 !important;
             }
-            .print-page-wrapper:last-child {
+            .print-page-wrapper:last-of-type {
               page-break-after: auto !important;
               break-after: auto !important;
             }
             .print-grid {
               display: grid !important;
-              grid-template-columns: repeat(2, 3.4in) !important;
-              gap: 0.1in !important;
+              grid-template-columns: repeat(2, 3.45in) !important;
+              grid-auto-rows: 2.1in !important;
+              gap: 0.22in 0.3in !important;
               justify-content: center !important;
               margin: 0 auto !important;
             }
             .id-card-print {
-              width: 3.4in !important;
-              height: 2.0in !important;
+              width: 3.45in !important;
+              height: 2.1in !important;
               box-sizing: border-box !important;
               border: 1.5pt solid #0f172a !important;
               border-radius: 8pt !important;
-              padding: 0.08in !important;
+              padding: 0.1in !important;
               background: white !important;
               page-break-inside: avoid !important;
               break-inside: avoid !important;
@@ -1989,7 +2012,7 @@ function PrintStudentQrCardsModal({ event, token, onClose }: { event: Event; tok
           }
         `}</style>
 
-        <div className="print-sheet-root">
+        <div>
           {(() => {
             const pages: Student[][] = [];
             for (let i = 0; i < studentsToPrint.length; i += 8) {
