@@ -2913,6 +2913,7 @@ function SettingsPage() {
       setCampus(s.campusName || 'Dimataling Campus');
       setLateThreshold(s.lateThresholdMinutes ?? 15);
       setAuto(s.automaticSessions ?? true);
+      setManualMode((s as unknown as Record<string, unknown>).manualSessionMode as boolean ?? false);
       setDupe(s.duplicateProtection ?? true);
       setConfirm(s.attendanceConfirmation ?? true);
     }
@@ -2925,10 +2926,11 @@ function SettingsPage() {
           schoolName: school,
           campusName: campus,
           automaticSessions: auto,
+          manualSessionMode: manualMode,
           duplicateProtection: dupe,
           attendanceConfirmation: confirm,
           ...({ lateThresholdMinutes: lateThreshold } as Record<string, unknown>),
-        },
+        } as Record<string, unknown>,
       },
       {
         onSuccess: () =>
@@ -3014,7 +3016,7 @@ function Scanner() {
 
   const records = listAttendance.data || [];
   const students = studentsQuery.data || [];
-  const activeEvent = eventsQuery.data?.find((e) => e.status === 'active') || eventsQuery.data?.[0];
+  const activeEvent = eventsQuery.data?.find((e) => e.status === 'active');
 
   const totalScans = records.length;
   const presentScans = records.filter(r => r.status === 'present').length;
@@ -3196,10 +3198,15 @@ function Scanner() {
           </div>
           <p className="mt-1 text-xs text-muted-foreground">Print CSC QR Code ONCE per semester — active event and session are automatically attached to all scans.</p>
         </div>
-        {activeEvent && (
-          <div className="flex items-center gap-2 rounded-xl bg-muted/60 px-3 py-1.5 border border-border">
-            <span className="size-2 rounded-full bg-emerald-500 animate-pulse" />
-            <span className="text-xs font-bold text-foreground">Active Event: {activeEvent.name}</span>
+        {activeEvent ? (
+          <div className="flex items-center gap-2 rounded-xl bg-emerald-500/10 px-3.5 py-2 border border-emerald-500/30">
+            <span className="size-2.5 rounded-full bg-emerald-500 animate-pulse" />
+            <span className="text-xs font-bold text-emerald-800">Active Event: {activeEvent.name}</span>
+          </div>
+        ) : (
+          <div className="flex items-center gap-2 rounded-xl bg-amber-500/10 px-3.5 py-2 border border-amber-500/30">
+            <span className="size-2.5 rounded-full bg-amber-500" />
+            <span className="text-xs font-bold text-amber-800">No Active Event (Activate an event in Event Management)</span>
           </div>
         )}
       </div>

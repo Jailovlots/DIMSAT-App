@@ -75,47 +75,98 @@ function parseMinutes(timeStr: string): number {
   return (h || 0) * 60 + (m || 0);
 }
 
-function resolveCurrentSession(sessions: (typeof attendanceSessionsTable.$inferSelect)[]) {
-  if (!sessions || !sessions.length) return null;
+function getManilaTime(): { hours: number; minutes: number; currentMinutes: number; timeString: string; dateString: string } {
+  const now = new Date();
+  const manilaFormatter = new Intl.DateTimeFormat("en-US", {
+    timeZone: "Asia/Manila",
+    hour: "numeric",
+    minute: "numeric",
+    hour12: false,
+  });
+  const parts = manilaFormatter.formatToParts(now);
+  const hours = Number(parts.find((p) => p.type === "hour")?.value ?? now.getHours());
+  const minutes = Number(parts.find((p) => p.type === "minute")?.value ?? now.getMinutes());
+  const currentMinutes = hours * 60 + minutes;
 
-  // 1. If any session is manually marked active, use that
-  const manuallyActive = sessions.find((s) => s.active);
-  if (manuallyActive) return manuallyActive;
+  const displayFormatter = new Intl.DateTimeFormat("en-US", {
+    timeZone: "Asia/Manila",
+    hour: "numeric",
+    minute: "2-digit",
+    hour12: true,
+  });
+  const timeString = displayFormatter.format(now);
+
+  const dateFormatter = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Manila",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  });
+  const dateString = dateFormatter.format(now);
+
+  return { hours, minutes, currentMinutes, timeString, dateString };
+}
+
+function resolveCurrentSession(
+  sessions: (typeof attendanceSessionsTable.$inferSelect)[],
+  isManualMode: boolean,
+  lateThresholdMinutes: number = 30
+): { session: (typeof attendanceSessionsTable.$inferSelect) | null; error?: string } {
+  if (!sessions || !sessions.length) {
+    return { session: null, error: "No attendance sessions found for this event." };
+  }
 
   const enabledSessions = sessions.filter((s) => s.enabled);
-  if (!enabledSessions.length) return sessions[0];
+  if (!enabledSessions.length) {
+    return { session: null, error: "All attendance sessions for this event are currently disabled." };
+  }
 
-  const now = new Date();
-  const currentMinutes = now.getHours() * 60 + now.getMinutes();
+  // 1. In manual mode: use the session explicitly marked active by admin
+  if (isManualMode) {
+    const manuallyActive = enabledSessions.find((s) => s.active);
+    if (manuallyActive) return { session: manuallyActive };
+    return {
+      session: null,
+      error: "Manual session mode is enabled, but no session is currently activated by the Admin in Event Settings.",
+    };
+  }
 
-  // 2. Exact time window match with 30-minute grace period after endTime
-  const timeMatch = enabledSessions.find((s) => {
+  // 2. In automatic mode: dynamically resolve based on Philippine Standard Time (Asia/Manila)
+  const { currentMinutes, timeString } = getManilaTime();
+
+  // Check which session window is currently open (startTime to endTime + lateThresholdMinutes)
+  const activeMatch = enabledSessions.find((s) => {
     const startMins = parseMinutes(s.startTime);
     const endMins = parseMinutes(s.endTime);
     if (endMins >= startMins) {
-      return currentMinutes >= startMins && currentMinutes <= endMins + 30;
+      return currentMinutes >= startMins && currentMinutes <= (endMins + lateThresholdMinutes);
     }
-    return currentMinutes >= startMins || currentMinutes <= endMins;
+    // Overnight session (e.g. 21:00 to 02:00)
+    return currentMinutes >= startMins || currentMinutes <= (endMins + lateThresholdMinutes);
   });
 
-  if (timeMatch) return timeMatch;
-
-  // 3. Proximity match: pick session whose start/end window is closest to current time
-  let closest = enabledSessions[0];
-  let minDiff = Infinity;
-
-  for (const s of enabledSessions) {
-    const startMins = parseMinutes(s.startTime);
-    const endMins = parseMinutes(s.endTime);
-    const midPoint = (startMins + endMins) / 2;
-    const diff = Math.abs(currentMinutes - midPoint);
-    if (diff < minDiff) {
-      minDiff = diff;
-      closest = s;
-    }
+  if (activeMatch) {
+    return { session: activeMatch };
   }
 
-  return closest;
+  // If outside all session windows, give an exact helpful reason with session times and current time
+  const upcoming = enabledSessions
+    .map((s) => ({ s, startMins: parseMinutes(s.startTime) }))
+    .filter((x) => x.startMins > currentMinutes)
+    .sort((a, b) => a.startMins - b.startMins)[0];
+
+  if (upcoming) {
+    return {
+      session: null,
+      error: `No attendance session is open right now (${timeString}). Next session "${upcoming.s.name}" opens at ${upcoming.s.startTime}.`,
+    };
+  }
+
+  const lastSession = enabledSessions[enabledSessions.length - 1];
+  return {
+    session: null,
+    error: `Attendance is closed for today (${timeString}). The last session "${lastSession.name}" (${lastSession.startTime} – ${lastSession.endTime}) has ended.`,
+  };
 }
 
 // ─── AUTH / STUDENT LOOKUP (dry-run validation, no side effects) ──────────────
@@ -965,13 +1016,13 @@ router.post("/events", async (req, res, next) => {
       .returning();
 
     await db.insert(attendanceSessionsTable).values(
-      defaultSessions.map((s, idx) => ({
+      defaultSessions.map((s) => ({
         eventId: event.id,
         name: s.name,
         startTime: s.startTime,
         endTime: s.endTime,
         enabled: s.enabled,
-        active: idx === 0, // set first session active by default
+        active: false,
       })),
     );
 
@@ -1471,7 +1522,6 @@ router.post("/attendance/scan", async (req, res, next) => {
 
     // If the scanned QR is only a studentId (no token part), use the auto-loaded token
     if (!cleanStudentId && cleanToken) {
-      // Treat the whole value as a student ID if it doesn't look like a token
       if (cleanToken.length <= 20) {
         cleanStudentId = cleanToken;
         cleanToken = "";
@@ -1483,7 +1533,7 @@ router.post("/attendance/scan", async (req, res, next) => {
       return;
     }
 
-    // 1. Resolve token -> Active Event (Support permanent CSC QR code & fallback to active event)
+    // 1. Resolve Active Event only (Strict: Event MUST be active)
     let eventId: number | null = null;
     let assignedSessionId: number | null = null;
 
@@ -1499,21 +1549,20 @@ router.post("/attendance/scan", async (req, res, next) => {
         const activeAssign = await db
           .select()
           .from(qrAssignmentsTable)
-          .where(and(eq(qrAssignmentsTable.qrCodeId, permQrRows[0].id), eq(qrAssignmentsTable.status, "active")))
+          .innerJoin(eventsTable, eq(eventsTable.id, qrAssignmentsTable.eventId))
+          .where(
+            and(
+              eq(qrAssignmentsTable.qrCodeId, permQrRows[0].id),
+              eq(qrAssignmentsTable.status, "active"),
+              eq(eventsTable.status, "active"),
+            ),
+          )
           .orderBy(desc(qrAssignmentsTable.activatedAt))
           .limit(1);
 
         if (activeAssign[0]) {
-          const assignedEv = await db
-            .select()
-            .from(eventsTable)
-            .where(and(eq(eventsTable.id, activeAssign[0].eventId), eq(eventsTable.status, "active")))
-            .limit(1);
-
-          if (assignedEv[0]) {
-            eventId = activeAssign[0].eventId;
-            assignedSessionId = activeAssign[0].sessionId;
-          }
+          eventId = activeAssign[0].qr_assignments.eventId;
+          assignedSessionId = activeAssign[0].qr_assignments.sessionId;
         }
       }
 
@@ -1522,24 +1571,17 @@ router.post("/attendance/scan", async (req, res, next) => {
         const tokenRows = await db
           .select()
           .from(eventQrTokensTable)
-          .where(eq(eventQrTokensTable.token, cleanToken))
+          .innerJoin(eventsTable, eq(eventsTable.id, eventQrTokensTable.eventId))
+          .where(and(eq(eventQrTokensTable.token, cleanToken), eq(eventsTable.status, "active")))
           .limit(1);
 
         if (tokenRows[0]) {
-          const tokenEv = await db
-            .select()
-            .from(eventsTable)
-            .where(and(eq(eventsTable.id, tokenRows[0].eventId), eq(eventsTable.status, "active")))
-            .limit(1);
-
-          if (tokenEv[0]) {
-            eventId = tokenRows[0].eventId;
-          }
+          eventId = tokenRows[0].event_qr_tokens.eventId;
         }
       }
     }
 
-    // Fallback: Use active assignment of any permanent QR code or latest active event
+    // Fallback: Check any active assignment for active events
     if (!eventId) {
       const activeAssignRows = await db
         .select()
@@ -1555,6 +1597,7 @@ router.post("/attendance/scan", async (req, res, next) => {
       }
     }
 
+    // Fallback: Find currently active event
     if (!eventId) {
       const activeEv = await db
         .select()
@@ -1569,20 +1612,9 @@ router.post("/attendance/scan", async (req, res, next) => {
     }
 
     if (!eventId) {
-      const latestEv = await db
-        .select()
-        .from(eventsTable)
-        .where(ne(eventsTable.status, "cancelled"))
-        .orderBy(desc(eventsTable.createdAt))
-        .limit(1);
-
-      if (latestEv[0]) {
-        eventId = latestEv[0].id;
-      }
-    }
-
-    if (!eventId) {
-      res.status(404).json({ error: "No active event found. Please create or start an event in the Admin Console." });
+      res.status(400).json({
+        error: "No active event found. Please go to Event Management and activate an event before scanning attendance.",
+      });
       return;
     }
 
@@ -1595,45 +1627,44 @@ router.post("/attendance/scan", async (req, res, next) => {
 
     const student = studentRows[0];
     if (!student) {
-      res.status(404).json({ error: `Student ID "${cleanStudentId}" is not in the certified student roster. Please import the student roster first.` });
+      res.status(404).json({
+        error: `Student ID "${cleanStudentId}" is not in the certified student roster. Please import the student roster first.`,
+      });
       return;
     }
 
     // 3. Resolve Event
     const eventRows = await db.select().from(eventsTable).where(eq(eventsTable.id, eventId)).limit(1);
     const event = eventRows[0];
-    if (!event || event.status === "cancelled") {
-      res.status(400).json({ error: `Event "${event?.name || 'Selected Event'}" is cancelled.` });
+    if (!event || event.status !== "active") {
+      res.status(400).json({
+        error: `Event "${event?.name || 'Selected Event'}" is not active (Status: "${event?.status || 'inactive'}"). Please activate it first.`,
+      });
       return;
     }
 
-    // 4. Resolve Active Attendance Session
+    // 4. Resolve Active Attendance Session according to mode and Manila time
     const settingsRows = await db.select().from(systemSettingsTable).limit(1);
     const isManualMode = settingsRows[0]?.manualSessionMode ?? false;
-
-    let activeSession = null;
+    const lateThresholdMinutes = settingsRows[0]?.lateThresholdMinutes ?? 15;
 
     const sessions = await db
       .select()
       .from(attendanceSessionsTable)
       .where(eq(attendanceSessionsTable.eventId, eventId));
 
+    let activeSession = null;
     if (assignedSessionId) {
       activeSession = sessions.find((s) => s.id === assignedSessionId) || null;
     }
 
     if (!activeSession) {
-      if (isManualMode) {
-        activeSession = sessions.find((s) => s.active) || null;
-      } else {
-        // Automatic time-based mode: dynamically resolve session matching current time of day
-        activeSession = resolveCurrentSession(sessions);
+      const resolved = resolveCurrentSession(sessions, isManualMode, lateThresholdMinutes);
+      if (!resolved.session) {
+        res.status(400).json({ error: resolved.error || "No attendance session is currently open for scanning." });
+        return;
       }
-    }
-
-    if (!activeSession) {
-      res.status(400).json({ error: "No active attendance session available for this event." });
-      return;
+      activeSession = resolved.session;
     }
 
     // 5. Duplicate Scan Guard for (eventId, sessionId, studentId)
@@ -1691,17 +1722,23 @@ router.post("/attendance/confirm", async (req, res, next) => {
       cleanStudentId = parts[1].trim();
     }
 
+    if (!cleanStudentId && cleanToken) {
+      if (cleanToken.length <= 20) {
+        cleanStudentId = cleanToken;
+        cleanToken = "";
+      }
+    }
+
     if (!cleanStudentId) {
       res.status(400).json({ error: "Student ID is required." });
       return;
     }
 
-    // 1. Resolve token -> Active Event (Support permanent CSC QR code & fallback to active event)
+    // 1. Resolve Active Event only
     let eventId: number | null = null;
     let assignedSessionId: number | null = null;
 
     if (cleanToken) {
-      // Check Permanent QR codes first
       const permQrRows = await db
         .select()
         .from(attendanceQrCodesTable)
@@ -1712,47 +1749,37 @@ router.post("/attendance/confirm", async (req, res, next) => {
         const activeAssign = await db
           .select()
           .from(qrAssignmentsTable)
-          .where(and(eq(qrAssignmentsTable.qrCodeId, permQrRows[0].id), eq(qrAssignmentsTable.status, "active")))
+          .innerJoin(eventsTable, eq(eventsTable.id, qrAssignmentsTable.eventId))
+          .where(
+            and(
+              eq(qrAssignmentsTable.qrCodeId, permQrRows[0].id),
+              eq(qrAssignmentsTable.status, "active"),
+              eq(eventsTable.status, "active"),
+            ),
+          )
           .orderBy(desc(qrAssignmentsTable.activatedAt))
           .limit(1);
 
         if (activeAssign[0]) {
-          const assignedEv = await db
-            .select()
-            .from(eventsTable)
-            .where(and(eq(eventsTable.id, activeAssign[0].eventId), eq(eventsTable.status, "active")))
-            .limit(1);
-
-          if (assignedEv[0]) {
-            eventId = activeAssign[0].eventId;
-            assignedSessionId = activeAssign[0].sessionId;
-          }
+          eventId = activeAssign[0].qr_assignments.eventId;
+          assignedSessionId = activeAssign[0].qr_assignments.sessionId;
         }
       }
 
-      // Check eventQrTokensTable for active event match
       if (!eventId) {
         const tokenRows = await db
           .select()
           .from(eventQrTokensTable)
-          .where(eq(eventQrTokensTable.token, cleanToken))
+          .innerJoin(eventsTable, eq(eventsTable.id, eventQrTokensTable.eventId))
+          .where(and(eq(eventQrTokensTable.token, cleanToken), eq(eventsTable.status, "active")))
           .limit(1);
 
         if (tokenRows[0]) {
-          const tokenEv = await db
-            .select()
-            .from(eventsTable)
-            .where(and(eq(eventsTable.id, tokenRows[0].eventId), eq(eventsTable.status, "active")))
-            .limit(1);
-
-          if (tokenEv[0]) {
-            eventId = tokenRows[0].eventId;
-          }
+          eventId = tokenRows[0].event_qr_tokens.eventId;
         }
       }
     }
 
-    // Fallback: Use active assignment of any permanent QR code or latest active event
     if (!eventId) {
       const activeAssignRows = await db
         .select()
@@ -1782,20 +1809,9 @@ router.post("/attendance/confirm", async (req, res, next) => {
     }
 
     if (!eventId) {
-      const latestEv = await db
-        .select()
-        .from(eventsTable)
-        .where(ne(eventsTable.status, "cancelled"))
-        .orderBy(desc(eventsTable.createdAt))
-        .limit(1);
-
-      if (latestEv[0]) {
-        eventId = latestEv[0].id;
-      }
-    }
-
-    if (!eventId) {
-      res.status(404).json({ error: "No active event found. Please create or start an event in the Admin Console." });
+      res.status(400).json({
+        error: "No active event found. Please activate an event in Event Management before scanning.",
+      });
       return;
     }
 
@@ -1811,37 +1827,49 @@ router.post("/attendance/confirm", async (req, res, next) => {
       return;
     }
 
-    // Dynamically resolve active session matching current time of day
+    const eventRows = await db.select().from(eventsTable).where(eq(eventsTable.id, eventId)).limit(1);
+    const event = eventRows[0];
+    if (!event || event.status !== "active") {
+      res.status(400).json({ error: `Event "${event?.name || 'Selected Event'}" is not currently active.` });
+      return;
+    }
+
+    // Resolve active session
+    const settingsRows = await db.select().from(systemSettingsTable).limit(1);
+    const isManualMode = settingsRows[0]?.manualSessionMode ?? false;
+    const lateThresholdMinutes = settingsRows[0]?.lateThresholdMinutes ?? 15;
+
     const sessionRows = await db
       .select()
       .from(attendanceSessionsTable)
       .where(eq(attendanceSessionsTable.eventId, eventId));
 
-    const session = resolveCurrentSession(sessionRows);
-    if (!session) {
-      res.status(400).json({ error: "No attendance session found for event." });
-      return;
+    let session = null;
+    if (assignedSessionId) {
+      session = sessionRows.find((s) => s.id === assignedSessionId) || null;
     }
 
-    // Determine status (present vs late based on lateThresholdMinutes)
-    const settingsRows = await db.select().from(systemSettingsTable).limit(1);
-    const lateThresholdMinutes = settingsRows[0]?.lateThresholdMinutes ?? 15;
+    if (!session) {
+      const resolved = resolveCurrentSession(sessionRows, isManualMode, lateThresholdMinutes);
+      if (!resolved.session) {
+        res.status(400).json({ error: resolved.error || "No attendance session is open right now." });
+        return;
+      }
+      session = resolved.session;
+    }
 
+    // Determine status (present vs late based on lateThresholdMinutes and Manila time)
     let scanStatus = "present";
-    const now = new Date();
-    const currentMinutes = now.getHours() * 60 + now.getMinutes();
+    const { currentMinutes } = getManilaTime();
 
     if (session.startTime) {
-      const [sh, sm] = session.startTime.split(":").map(Number);
-      if (!isNaN(sh) && !isNaN(sm)) {
-        const sessionStartMinutes = sh * 60 + sm;
-        if (currentMinutes > sessionStartMinutes + lateThresholdMinutes) {
-          scanStatus = "late";
-        }
+      const sessionStartMinutes = parseMinutes(session.startTime);
+      if (currentMinutes > sessionStartMinutes + lateThresholdMinutes) {
+        scanStatus = "late";
       }
     }
 
-    // Auto-record 'absent' for any earlier enabled sessions that have already passed and were NOT scanned by this student
+    // Auto-record 'absent' for earlier enabled sessions that passed without a scan
     const earlierSessions = sessionRows.filter((s) => {
       if (!s.enabled || s.id === session.id) return false;
       const sessionEndMins = parseMinutes(s.endTime);
@@ -1886,8 +1914,6 @@ router.post("/attendance/confirm", async (req, res, next) => {
       .onConflictDoNothing()
       .returning();
 
-    const eventRows = await db.select().from(eventsTable).where(eq(eventsTable.id, eventId)).limit(1);
-
     await db.insert(auditLogsTable).values({
       action: "RECORD_ATTENDANCE",
       entityType: "attendance_record",
@@ -1900,7 +1926,7 @@ router.post("/attendance/confirm", async (req, res, next) => {
       studentName: student.fullName,
       studentId: student.studentId,
       yearLevel: student.yearLevel,
-      eventName: eventRows[0]?.name ?? "",
+      eventName: event.name,
       sessionName: session.name,
       scannedAt: (record?.scannedAt ?? new Date()).toISOString(),
       officerName: "Officer 01",
