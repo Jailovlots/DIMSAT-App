@@ -112,7 +112,25 @@ export function StatusPill({ status }: { status: 'Present' | 'Upcoming' | 'Missi
 
 export function Avatar({ uri, name, size = 62 }: { uri?: string; name: string; size?: number }) {
   const colors = useColors();
-  return uri ? <Image source={{ uri }} style={{ width: size, height: size, borderRadius: size / 2 }} /> : <View style={[styles.avatar, { width: size, height: size, borderRadius: size / 2, backgroundColor: colors.secondary }]}><Text style={[styles.avatarText, { color: colors.primary, fontSize: size * 0.3 }]}>{name.split(' ').map((word) => word[0]).join('').slice(0, 2)}</Text></View>;
+  const [hasError, setHasError] = useState(false);
+  const clean = (name || '').replace(/[^a-zA-Z0-9\s]/g, ' ').trim();
+  const parts = clean.split(/\s+/).filter(Boolean);
+  const initials = parts.length === 0 ? '?' : parts.length === 1 ? parts[0].slice(0, 2).toUpperCase() : (parts[0][0] + parts[1][0]).toUpperCase();
+  const isValid = uri && typeof uri === 'string' && uri.trim() && !hasError;
+
+  return isValid ? (
+    <Image
+      source={{ uri }}
+      onError={() => setHasError(true)}
+      style={{ width: size, height: size, borderRadius: size / 2 }}
+    />
+  ) : (
+    <View style={[styles.avatar, { width: size, height: size, borderRadius: size / 2, backgroundColor: colors.secondary }]}>
+      <Text style={[styles.avatarText, { color: colors.primary, fontSize: size * 0.35, fontWeight: '800' }]}>
+        {initials}
+      </Text>
+    </View>
+  );
 }
 
 export function IconCircle({ icon, color }: { icon: keyof typeof Ionicons.glyphMap; color?: string }) {

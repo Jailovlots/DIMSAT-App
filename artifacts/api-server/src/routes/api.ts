@@ -19,6 +19,29 @@ import * as XLSX from "xlsx";
 
 const router = Router();
 
+function sanitizeProfilePhoto(photo?: string | null): string | null {
+  if (!photo || typeof photo !== "string") return null;
+  const trimmed = photo.trim();
+  if (!trimmed || trimmed === "null" || trimmed === "undefined") return null;
+  if (
+    trimmed.startsWith("file:") ||
+    trimmed.startsWith("ph:") ||
+    trimmed.startsWith("content:") ||
+    trimmed.startsWith("blob:")
+  ) {
+    return null;
+  }
+  if (
+    trimmed.startsWith("data:image/") ||
+    trimmed.startsWith("http://") ||
+    trimmed.startsWith("https://") ||
+    trimmed.startsWith("/")
+  ) {
+    return trimmed;
+  }
+  return null;
+}
+
 // Auto-ensure required schema columns and tables exist in physical database
 (async () => {
   try {
@@ -1687,7 +1710,7 @@ router.post("/attendance/scan", async (req, res, next) => {
       studentName: student.fullName,
       yearLevel: student.yearLevel,
       program: student.program,
-      profilePhoto: student.profilePhoto,
+      profilePhoto: sanitizeProfilePhoto(student.profilePhoto),
       eventName: event.name,
       sessionName: activeSession.name,
       alreadyRecorded,

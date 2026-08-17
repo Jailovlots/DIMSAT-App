@@ -81,6 +81,127 @@ function Badge({ children, tone = 'neutral' }: { children: React.ReactNode; tone
   return <span className={`inline-flex items-center gap-1 rounded-md px-2 py-1 font-mono text-[10px] font-medium uppercase tracking-[.04em] ${style}`}>{children}</span>;
 }
 
+function getInitials(name: string): string {
+  if (!name) return '?';
+  const clean = name.replace(/[^a-zA-Z0-9\s]/g, ' ').trim();
+  const parts = clean.split(/\s+/).filter(Boolean);
+  if (parts.length === 0) return '?';
+  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+  return (parts[0][0] + parts[1][0]).toUpperCase();
+}
+
+function isValidPhotoUrl(url?: string | null): boolean {
+  if (!url || typeof url !== 'string') return false;
+  const trimmed = url.trim();
+  if (!trimmed || trimmed === 'null' || trimmed === 'undefined') return false;
+  if (trimmed.startsWith('file:') || trimmed.startsWith('ph:') || trimmed.startsWith('content:') || trimmed.startsWith('blob:')) {
+    return false;
+  }
+  return trimmed.startsWith('http://') || trimmed.startsWith('https://') || trimmed.startsWith('data:image/') || trimmed.startsWith('/');
+}
+
+function StudentAvatar({
+  src,
+  name,
+  size = 'md',
+  className = '',
+}: {
+  src?: string | null;
+  name: string;
+  size?: 'sm' | 'md' | 'lg' | 'xl' | 'modal';
+  className?: string;
+}) {
+  const [hasError, setHasError] = useState(false);
+  const initials = getInitials(name);
+  const isValid = isValidPhotoUrl(src);
+
+  useEffect(() => {
+    setHasError(false);
+  }, [src]);
+
+  const showImage = isValid && !hasError && !!src;
+
+  if (size === 'modal') {
+    return (
+      <div className={`relative size-44 overflow-hidden rounded-2xl border-4 border-amber-300 shadow-md bg-gradient-to-b from-amber-400 to-amber-500 flex items-center justify-center ${className}`}>
+        {showImage ? (
+          <img
+            src={src}
+            alt=""
+            aria-label={name}
+            onError={() => setHasError(true)}
+            className="h-full w-full object-cover object-center"
+          />
+        ) : (
+          <div className="flex flex-col items-center justify-center select-none">
+            <span className="font-mono text-5xl font-black text-white tracking-widest drop-shadow-sm">
+              {initials}
+            </span>
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  if (size === 'xl') {
+    return (
+      <div className={`relative size-full overflow-hidden bg-slate-900 flex items-center justify-center ${className}`}>
+        {showImage ? (
+          <img
+            src={src}
+            alt=""
+            aria-label={name}
+            onError={() => setHasError(true)}
+            className="h-full w-full object-cover object-top"
+          />
+        ) : (
+          <div className="flex h-full w-full items-center justify-center bg-gradient-to-b from-amber-400 to-amber-500 select-none">
+            <span className="font-mono text-5xl font-black text-white tracking-widest drop-shadow-sm">
+              {initials}
+            </span>
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  if (size === 'sm') {
+    return (
+      <div className={`size-8 rounded-full overflow-hidden shrink-0 flex items-center justify-center border border-primary/20 bg-primary/10 ${className}`}>
+        {showImage ? (
+          <img
+            src={src}
+            alt=""
+            onError={() => setHasError(true)}
+            className="size-full object-cover rounded-full"
+          />
+        ) : (
+          <span className="font-mono text-[10px] font-bold text-primary select-none">
+            {initials}
+          </span>
+        )}
+      </div>
+    );
+  }
+
+  return (
+    <div className={`size-10 rounded-full overflow-hidden shrink-0 flex items-center justify-center border border-primary/20 bg-primary/10 ${className}`}>
+      {showImage ? (
+        <img
+          src={src}
+          alt=""
+          onError={() => setHasError(true)}
+          className="size-full object-cover rounded-full"
+        />
+      ) : (
+        <span className="font-mono text-xs font-bold text-primary select-none">
+          {initials}
+        </span>
+      )}
+    </div>
+  );
+}
+
 function Field({ label, value, onChange, placeholder, type = 'text' }: { label: string; value: string; onChange: (v: string) => void; placeholder?: string; type?: string }) {
   const [showPwd, setShowPwd] = useState(false);
   const isPassword = type === 'password';
@@ -886,13 +1007,7 @@ function Students() {
                   <tr data-testid={`row-student-${s.id}`} key={s.id} className="border-b border-border/70 last:border-0 hover:bg-muted/30">
                     <td className="px-5 py-3.5">
                       <div className="flex items-center gap-3">
-                        {s.profilePhoto ? (
-                          <img src={s.profilePhoto} alt={s.fullName} className="size-8 rounded-full object-cover border border-primary/20 shrink-0" />
-                        ) : (
-                          <div className="grid size-8 place-items-center rounded-full bg-primary/10 font-mono text-[10px] font-medium text-primary shrink-0">
-                            {s.fullName.split(' ').map(x => x[0]).slice(0, 2).join('')}
-                          </div>
-                        )}
+                        <StudentAvatar src={s.profilePhoto} name={s.fullName} size="sm" />
                         <div>
                           <div className="text-[12px] font-bold">{s.fullName}</div>
                           <div className="mt-0.5 font-mono text-[10px] text-muted-foreground">{s.studentId}</div>
@@ -3376,19 +3491,11 @@ function Scanner() {
                 <div className="mt-4 overflow-hidden rounded-xl border border-border bg-muted/20">
                   {/* Full-width photo for clear visual verification */}
                   <div className="relative w-full overflow-hidden bg-slate-900" style={{ aspectRatio: '4/3' }}>
-                    {lastScan.photo ? (
-                      <img
-                        src={lastScan.photo}
-                        alt={lastScan.name}
-                        className="h-full w-full object-cover object-top"
-                      />
-                    ) : (
-                      <div className="flex h-full w-full items-center justify-center bg-gradient-to-b from-amber-400 to-amber-500">
-                        <span className="font-mono text-5xl font-black text-white tracking-widest">
-                          {lastScan.name.split(' ').map((x: string) => x[0]).slice(0, 2).join('')}
-                        </span>
-                      </div>
-                    )}
+                    <StudentAvatar
+                      src={lastScan.photo}
+                      name={lastScan.name}
+                      size="xl"
+                    />
                     {/* Verified overlay badge */}
                     <div className="absolute top-2.5 right-2.5 flex items-center gap-1.5 rounded-full bg-emerald-600 px-2.5 py-1 shadow-md">
                       <span className="size-1.5 rounded-full bg-white animate-pulse" />
@@ -3442,14 +3549,12 @@ function Scanner() {
             {/* Modal Body */}
             <div className="p-6 text-center">
               {/* Golden Avatar Box (Match Image 4) */}
-              <div className="mx-auto mb-4 relative size-44 overflow-hidden rounded-2xl border-4 border-amber-300 shadow-md bg-gradient-to-b from-amber-400 to-amber-500 flex items-center justify-center">
-                {candidate.profilePhoto ? (
-                  <img src={candidate.profilePhoto} alt={candidate.studentName} className="h-full w-full object-cover" />
-                ) : (
-                  <span className="text-4xl font-extrabold text-white tracking-widest">
-                    {candidate.studentName.split(' ').map((x: string) => x[0]).slice(0, 2).join('')}
-                  </span>
-                )}
+              <div className="mx-auto mb-4 flex justify-center">
+                <StudentAvatar
+                  src={candidate.profilePhoto}
+                  name={candidate.studentName}
+                  size="modal"
+                />
               </div>
 
               {/* Student Name */}
