@@ -312,6 +312,12 @@ export function AttendanceProvider({ children }: { children: ReactNode }) {
     const nextAccount = { ...current, photoUri: uri, photoChanges: newCount };
     const accounts = state.accounts.map((item) => item.studentId === current.studentId ? nextAccount : item);
     await persist({ accounts, activeStudentId: current.studentId });
+
+    // Sync in-memory certified students list
+    setCertifiedStudents((prev) =>
+      prev.map((s) => (s.studentId === current.studentId ? { ...s, profilePhoto: uri } : s))
+    );
+
     return { ok: true };
   }, [persist, state]);
 

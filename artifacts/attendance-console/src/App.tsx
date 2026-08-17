@@ -1072,7 +1072,20 @@ function EditStudentDialog({ student, onClose, onSuccess }: { student: Student; 
   const [yearLevel, setYearLevel] = useState(String(student.yearLevel ?? '1'));
   const [program, setProgram] = useState(student.program ?? 'BSIS');
   const [sex, setSex] = useState(student.sex ?? 'Female');
+  const [profilePhoto, setProfilePhoto] = useState<string | null>(student.profilePhoto ?? null);
   const [isSaving, setIsSaving] = useState(false);
+
+  const handlePhotoSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      if (typeof reader.result === 'string') {
+        setProfilePhoto(reader.result);
+      }
+    };
+    reader.readAsDataURL(file);
+  };
 
   const handleSave = async () => {
     setIsSaving(true);
@@ -1080,7 +1093,7 @@ function EditStudentDialog({ student, onClose, onSuccess }: { student: Student; 
       const res = await fetch(`/api/students/${student.id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ fullName, yearLevel, program, sex }),
+        body: JSON.stringify({ fullName, yearLevel, program, sex, profilePhoto }),
       });
       if (res.ok) {
         onSuccess();
@@ -1109,6 +1122,30 @@ function EditStudentDialog({ student, onClose, onSuccess }: { student: Student; 
         </div>
 
         <div className="grid gap-4">
+          {/* Photo Preview and Upload */}
+          <div className="flex items-center gap-4 p-3 rounded-xl border border-border bg-muted/20">
+            <StudentAvatar src={profilePhoto} name={fullName || student.studentId} size="md" className="size-16" />
+            <div className="flex-1">
+              <label className="text-xs font-bold text-foreground block mb-1">Profile Photo</label>
+              <div className="flex items-center gap-2">
+                <label className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-background px-3 py-1.5 text-xs font-bold text-foreground cursor-pointer hover:bg-muted transition-colors">
+                  <Camera className="size-3.5 text-primary" />
+                  <span>{profilePhoto ? 'Change photo' : 'Upload photo'}</span>
+                  <input type="file" accept="image/*" onChange={handlePhotoSelect} className="hidden" />
+                </label>
+                {profilePhoto && (
+                  <button
+                    type="button"
+                    onClick={() => setProfilePhoto(null)}
+                    className="text-xs text-red-500 font-semibold hover:underline"
+                  >
+                    Remove
+                  </button>
+                )}
+              </div>
+            </div>
+          </div>
+
           <Field label="Full Name" value={fullName} onChange={setFullName} placeholder="e.g. HUSIN, HAJEJA" />
 
           <div className="grid grid-cols-2 gap-3">

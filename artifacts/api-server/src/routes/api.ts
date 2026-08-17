@@ -703,11 +703,12 @@ router.patch("/students/:id", async (req, res, next) => {
       return;
     }
 
-    const { fullName, yearLevel, program, sex } = req.body as {
+    const { fullName, yearLevel, program, sex, profilePhoto } = req.body as {
       fullName?: string;
       yearLevel?: string;
       program?: string;
       sex?: string;
+      profilePhoto?: string | null;
     };
 
     const rows = await db
@@ -727,6 +728,7 @@ router.patch("/students/:id", async (req, res, next) => {
     if (yearLevel !== undefined && yearLevel.trim()) updateFields.yearLevel = yearLevel.trim();
     if (program !== undefined && program.trim()) updateFields.program = program.trim();
     if (sex !== undefined && sex.trim()) updateFields.sex = sex.trim();
+    if (profilePhoto !== undefined) updateFields.profilePhoto = sanitizeProfilePhoto(profilePhoto);
 
     const [updated] = await db
       .update(certifiedStudentsTable)
