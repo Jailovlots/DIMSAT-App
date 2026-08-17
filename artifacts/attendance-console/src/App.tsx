@@ -3005,7 +3005,7 @@ function Scanner() {
   const [candidate, setCandidate] = useState<Awaited<ReturnType<typeof useScanAttendance>>['data']>(undefined);
   const [showModal, setShowModal] = useState(false);
   const [message, setMessage] = useState('');
-  const [lastScan, setLastScan] = useState<{ name: string; id: string; session: string; status: string; time: string } | null>(null);
+  const [lastScan, setLastScan] = useState<{ name: string; id: string; session: string; status: string; time: string; photo: string | null }| null>(null);
 
   const [isScanning, setIsScanning] = useState(false);
   const videoRef = useRef<HTMLVideoElement | null>(null);
@@ -3166,6 +3166,7 @@ function Scanner() {
             session: candidate.sessionName,
             status: 'Present',
             time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+            photo: candidate.profilePhoto ?? null,
           });
           queryClient.invalidateQueries({ queryKey: getListAttendanceQueryKey() });
           setShowModal(false);
@@ -3372,17 +3373,36 @@ function Scanner() {
               <h2 className="text-sm font-extrabold text-foreground">Last Scan Result</h2>
 
               {lastScan ? (
-                <div className="mt-5 flex items-center gap-4 rounded-xl border border-border bg-muted/30 p-4">
-                  <div className="grid size-12 place-items-center rounded-full bg-amber-100 text-amber-600">
-                    <Clock3 className="size-6" />
+                <div className="mt-4 overflow-hidden rounded-xl border border-border bg-muted/20">
+                  {/* Full-width photo for clear visual verification */}
+                  <div className="relative w-full overflow-hidden bg-slate-900" style={{ aspectRatio: '4/3' }}>
+                    {lastScan.photo ? (
+                      <img
+                        src={lastScan.photo}
+                        alt={lastScan.name}
+                        className="h-full w-full object-cover object-top"
+                      />
+                    ) : (
+                      <div className="flex h-full w-full items-center justify-center bg-gradient-to-b from-amber-400 to-amber-500">
+                        <span className="font-mono text-5xl font-black text-white tracking-widest">
+                          {lastScan.name.split(' ').map((x: string) => x[0]).slice(0, 2).join('')}
+                        </span>
+                      </div>
+                    )}
+                    {/* Verified overlay badge */}
+                    <div className="absolute top-2.5 right-2.5 flex items-center gap-1.5 rounded-full bg-emerald-600 px-2.5 py-1 shadow-md">
+                      <span className="size-1.5 rounded-full bg-white animate-pulse" />
+                      <span className="font-mono text-[10px] font-extrabold text-white uppercase tracking-wider">Verified</span>
+                    </div>
                   </div>
-                  <div>
-                    <h3 className="text-lg font-extrabold text-foreground">{lastScan.name}</h3>
-                    <p className="text-xs font-bold text-muted-foreground">{lastScan.id} · {lastScan.session}</p>
-                    <div className="mt-2 flex items-center gap-2 text-[11px]">
+                  {/* Info strip below photo */}
+                  <div className="p-4">
+                    <h3 className="text-base font-extrabold text-foreground leading-tight">{lastScan.name}</h3>
+                    <p className="mt-0.5 font-mono text-[11px] font-bold text-muted-foreground">{lastScan.id}</p>
+                    <div className="mt-3 flex flex-wrap items-center gap-1.5 text-[10px]">
                       <span className="rounded-md bg-muted px-2 py-0.5 font-semibold text-foreground">📅 {lastScan.session}</span>
                       <span className="rounded-md bg-emerald-500/15 px-2 py-0.5 font-bold text-emerald-700">{lastScan.status}</span>
-                      <span className="text-muted-foreground">{lastScan.time}</span>
+                      <span className="ml-auto text-muted-foreground font-mono">{lastScan.time}</span>
                     </div>
                   </div>
                 </div>

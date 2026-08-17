@@ -18,10 +18,16 @@ export default function Photo() {
     if (account.photoChanges >= MAX_PROFILE_PHOTO_CHANGES) return setError('Maximum profile photo changes reached. Please contact the Admin.');
     const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (!permission.granted) return setError('Photo access is needed to choose a profile photo.');
-    const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], allowsEditing: true, aspect: [1, 1], quality: 0.85 });
+    const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], allowsEditing: true, aspect: [1, 1], quality: 0.85, base64: true });
     if (result.canceled || !result.assets[0]?.uri) return;
+    // Build a browser-compatible data URL so the admin web console can display the image.
+    // The raw local device URI (file:///...) is only accessible on the mobile device itself.
+    const asset = result.assets[0];
+    const photoDataUrl = asset.base64
+      ? `data:image/jpeg;base64,${asset.base64}`
+      : asset.uri; // fallback to URI if base64 is unavailable
     setBusy(true);
-    const saved = await updatePhoto(result.assets[0].uri);
+    const saved = await updatePhoto(photoDataUrl);
     setBusy(false);
     if (!saved.ok) return setError(saved.error ?? '');
     router.back();
