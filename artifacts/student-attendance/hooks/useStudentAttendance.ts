@@ -78,10 +78,11 @@ export function useStudentAttendance(studentId: string | null | undefined) {
         (r) => r.studentId.toUpperCase() === studentId.toUpperCase(),
       );
 
-      // Build a map: eventId -> sessionName -> record
+      // Build a map: eventName||sessionName -> record (normalized to lowercase for case-insensitive match)
       const recordMap = new Map<string, LiveAttendanceRecord>();
       for (const rec of myRecords) {
-        const key = `${rec.eventName}||${rec.sessionName}`;
+        // Normalize key to lowercase so "Evening OUT" matches "Evening out" from DB
+        const key = `${rec.eventName.toLowerCase()}||${rec.sessionName.toLowerCase()}`;
         recordMap.set(key, rec);
       }
 
@@ -92,7 +93,8 @@ export function useStudentAttendance(studentId: string | null | undefined) {
         const enabledSessions = event.sessions.filter((s) => s.enabled);
 
         const sessionRecords: StudentSessionRecord[] = enabledSessions.map((s) => {
-          const key = `${event.name}||${s.name}`;
+          // Normalize key to lowercase to match the normalized map keys above
+          const key = `${event.name.toLowerCase()}||${s.name.toLowerCase()}`;
           const rec = recordMap.get(key);
 
           if (rec) {

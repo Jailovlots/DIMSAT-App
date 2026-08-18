@@ -2370,26 +2370,125 @@ function Attendance() {
   const [session, setSession] = useState('all');
   const [yearLevel, setYearLevel] = useState('all');
   const [program, setProgram] = useState('all');
-  const [sortBy, setSortBy] = useState('time-desc');
+  const [statusFilter, setStatusFilter] = useState('all');
+  const [sortBy, setSortBy] = useState('status-present-first');
 
   const eventsQ = useListEvents();
   const eventsList = eventsQ.data || [];
+  const studentsQ = useListStudents();
+  const studentsList = studentsQ.data || [];
 
-  const q = useListAttendance({ search: search || undefined, session: session === 'all' ? undefined : session });
+  // Fetch all attendance records
+  const q = useListAttendance({ search: search || undefined });
   const rawRecords = q.data || [];
 
-  // Filter and sort records by search, event, session, year level, and program
+  // Map of studentId -> student record for instant metadata resolution
+  const studentsMap = useMemo(() => {
+    const map = new Map<string, typeof studentsList[0]>();
+    for (const s of studentsList) {
+      map.set(s.studentId.toUpperCase(), s);
+    }
+    return map;
+  }, [studentsList]);
+
+  // Derive unique session names from actual data
+  const uniqueSessionNames = useMemo(() => {
+    const seen = new Map<string, string>();
+    for (const r of rawRecords) {
+      const lower = r.sessionName.toLowerCase();
+      if (!seen.has(lower)) seen.set(lower, r.sessionName);
+    }
+    return Array.from(seen.values()).sort();
+  }, [rawRecords]);
+
+  // Derive unique programs from both student roster and attendance records
+  const uniquePrograms = useMemo(() => {
+    const set = new Set<string>();
+    for (const s of studentsList) {
+      if (s.program && s.program.trim()) set.add(s.program.trim());
+    }
+    for (const r of rawRecords) {
+      const prog = (r as { program?: string }).program;
+      if (prog && prog.trim()) set.add(prog.trim());
+    }
+    if (!set.size) ['BSIS', 'BSIT', 'BPED', 'BEED', 'BSED', 'ACT-AD'].forEach(p => set.add(p));
+    return Array.from(set).sort();
+  }, [studentsList, rawRecords]);
+
+  // Active event helper
+  const activeEvent = eventsList.find(e => e.status === 'active') || eventsList[0];
+
+  // Combined Present + Absent Records
+  const allRecords = useMemo(() => {
+    // 1. Process Scanned (Present/Late) Records
+    const scannedList = rawRecords.map(r => {
+      const studentInfo = studentsMap.get(r.studentId.toUpperCase());
+      return {
+        id: String(r.id),
+        studentId: r.studentId,
+        studentName: r.studentName,
+        yearLevel: r.yearLevel || studentInfo?.yearLevel || '1',
+        program: ((r as { program?: string }).program) || studentInfo?.program || 'BSIS',
+        eventName: r.eventName,
+        sessionName: r.sessionName,
+        scannedAt: r.scannedAt,
+        officerName: r.officerName || 'Officer 01',
+        status: (r.status || 'present').toLowerCase(),
+        isPresent: true,
+      };
+    });
+
+    // Set of student IDs that have a scanned record for the selected event / session
+    const scannedStudentIds = new Set<string>();
+    for (const r of rawRecords) {
+      const matchesEv = selectedEvent === 'all' || r.eventName.toLowerCase() === selectedEvent.toLowerCase();
+      const matchesSes = session === 'all' || r.sessionName.toLowerCase() === session.toLowerCase();
+      if (matchesEv && matchesSes) {
+        scannedStudentIds.add(r.studentId.toUpperCase());
+      }
+    }
+
+    // 2. Derive Unscanned (Absent) Students from the Certified Roster
+    const absentList: typeof scannedList = [];
+    for (const s of studentsList) {
+      if (!scannedStudentIds.has(s.studentId.toUpperCase())) {
+        absentList.push({
+          id: `absent-${s.id}`,
+          studentId: s.studentId,
+          studentName: s.fullName,
+          yearLevel: String(s.yearLevel || '1'),
+          program: s.program || 'BSIS',
+          eventName: selectedEvent !== 'all' ? selectedEvent : (activeEvent?.name || 'All Events'),
+          sessionName: session !== 'all' ? session : '—',
+          scannedAt: null as unknown as string,
+          officerName: '—',
+          status: 'absent',
+          isPresent: false,
+        });
+      }
+    }
+
+    return [...scannedList, ...absentList];
+  }, [rawRecords, studentsList, studentsMap, selectedEvent, session, activeEvent]);
+
+  // Filter and sort records
   const records = useMemo(() => {
-    const filtered = rawRecords.filter(r => {
+    const filtered = allRecords.filter(r => {
+      // Search filter
       const matchesSearch = !search ||
         r.studentName.toLowerCase().includes(search.toLowerCase()) ||
         r.studentId.toLowerCase().includes(search.toLowerCase()) ||
         r.eventName.toLowerCase().includes(search.toLowerCase()) ||
+        r.program.toLowerCase().includes(search.toLowerCase()) ||
         r.officerName.toLowerCase().includes(search.toLowerCase());
 
+      // Event filter
       const matchesEvent = selectedEvent === 'all' || r.eventName.toLowerCase() === selectedEvent.toLowerCase();
-      const matchesSession = session === 'all' || r.sessionName === session;
 
+      // Session filter
+      const matchesSession = session === 'all' || r.sessionName.toLowerCase() === session.toLowerCase();
+
+      // Year level filter
       const rYear = String(r.yearLevel || '').toLowerCase();
       const matchesYear = yearLevel === 'all' ||
         rYear.includes(yearLevel.toLowerCase()) ||
@@ -2398,26 +2497,50 @@ function Attendance() {
         (yearLevel === '3' && (rYear.includes('3') || rYear.includes('3rd'))) ||
         (yearLevel === '4' && (rYear.includes('4') || rYear.includes('4th')));
 
-      const rProg = ((r as unknown as Record<string, unknown>).program as string) || '';
-      const matchesProg = program === 'all' ||
-        rProg.toLowerCase().includes(program.toLowerCase()) ||
-        r.studentName.toLowerCase().includes(program.toLowerCase());
+      // Program filter (robust case-insensitive match)
+      const rProg = (r.program || '').toLowerCase();
+      const matchesProg = program === 'all' || rProg === program.toLowerCase();
 
-      return matchesSearch && matchesEvent && matchesSession && matchesYear && matchesProg;
+      // Status filter
+      const matchesStatus = statusFilter === 'all' ||
+        (statusFilter === 'present' && r.status === 'present') ||
+        (statusFilter === 'absent' && r.status === 'absent');
+
+      return matchesSearch && matchesEvent && matchesSession && matchesYear && matchesProg && matchesStatus;
     });
 
     return filtered.sort((a, b) => {
-      if (sortBy === 'time-desc') return new Date(b.scannedAt).getTime() - new Date(a.scannedAt).getTime();
-      if (sortBy === 'time-asc') return new Date(a.scannedAt).getTime() - new Date(b.scannedAt).getTime();
+      if (sortBy === 'status-present-first') {
+        if (a.status === 'present' && b.status !== 'present') return -1;
+        if (a.status !== 'present' && b.status === 'present') return 1;
+        return a.studentName.localeCompare(b.studentName);
+      }
+      if (sortBy === 'status-absent-first') {
+        if (a.status === 'absent' && b.status !== 'absent') return -1;
+        if (a.status !== 'absent' && b.status === 'absent') return 1;
+        return a.studentName.localeCompare(b.studentName);
+      }
+      if (sortBy === 'time-desc') {
+        const timeA = a.scannedAt ? new Date(a.scannedAt).getTime() : 0;
+        const timeB = b.scannedAt ? new Date(b.scannedAt).getTime() : 0;
+        return timeB - timeA;
+      }
+      if (sortBy === 'time-asc') {
+        const timeA = a.scannedAt ? new Date(a.scannedAt).getTime() : 0;
+        const timeB = b.scannedAt ? new Date(b.scannedAt).getTime() : 0;
+        return timeA - timeB;
+      }
       if (sortBy === 'name-asc') return a.studentName.localeCompare(b.studentName);
       if (sortBy === 'name-desc') return b.studentName.localeCompare(a.studentName);
       if (sortBy === 'id-asc') return a.studentId.localeCompare(b.studentId);
-      if (sortBy === 'event-asc') return a.eventName.localeCompare(b.eventName);
+      if (sortBy === 'program-asc') return a.program.localeCompare(b.program);
+      if (sortBy === 'year-asc') return String(a.yearLevel).localeCompare(String(b.yearLevel));
       return 0;
     });
-  }, [rawRecords, search, selectedEvent, session, yearLevel, program, sortBy]);
+  }, [allRecords, search, selectedEvent, session, yearLevel, program, statusFilter, sortBy]);
 
-  const present = records.filter(x => x.status === 'present').length;
+  const presentCount = records.filter(x => x.status === 'present').length;
+  const absentCount = records.filter(x => x.status === 'absent').length;
 
   const handleExportCSV = () => {
     if (!records.length) {
@@ -2430,10 +2553,10 @@ function Attendance() {
       'Student ID': r.studentId,
       'Student Name': r.studentName,
       'Year Level': r.yearLevel,
-      'Program': ((r as unknown as Record<string, unknown>).program as string) || 'BSIS',
+      'Program': r.program,
       'Event Name': r.eventName,
       'Session': r.sessionName,
-      'Time Scanned': new Date(r.scannedAt).toLocaleString(),
+      'Time Scanned': r.scannedAt ? new Date(r.scannedAt).toLocaleString() : 'Not Scanned',
       'Verified Officer': r.officerName,
       'Attendance Status': r.status.toUpperCase(),
     }));
@@ -2454,26 +2577,26 @@ function Attendance() {
       <PageHeader
         eyebrow="Records / attendance"
         title="Attendance Records"
-        description="View, sort, filter, print, and export official attendance records by event, session, date, program, or year level."
+        description="View, sort, filter, print, and export official attendance records by event, session, date, program, year level, or present/absent status."
       />
 
       {/* Summary Cards */}
       <div className="mb-5 grid gap-3 sm:grid-cols-3 print:hidden">
         <div className="rounded-xl border border-card-border bg-card p-4">
-          <div className="font-mono text-[10px] text-muted-foreground">TOTAL RECORDS</div>
+          <div className="font-mono text-[10px] text-muted-foreground uppercase">TOTAL STUDENTS</div>
           <div className="mt-1 text-2xl font-extrabold">{records.length}</div>
         </div>
         <div className="rounded-xl border border-card-border bg-card p-4">
-          <div className="font-mono text-[10px] text-muted-foreground">PRESENT</div>
-          <div className="mt-1 text-2xl font-extrabold text-primary">{present}</div>
+          <div className="font-mono text-[10px] text-emerald-600 dark:text-emerald-400 uppercase font-bold">PRESENT (SCANNED)</div>
+          <div className="mt-1 text-2xl font-extrabold text-emerald-600 dark:text-emerald-400">{presentCount}</div>
         </div>
         <div className="rounded-xl border border-card-border bg-card p-4">
-          <div className="font-mono text-[10px] text-muted-foreground">LAST SYNC</div>
-          <div className="mt-1 text-2xl font-extrabold">Live</div>
+          <div className="font-mono text-[10px] text-rose-500 uppercase font-bold">ABSENT (UNSCANNED)</div>
+          <div className="mt-1 text-2xl font-extrabold text-rose-500">{absentCount}</div>
         </div>
       </div>
 
-      {/* Search Bar & Filter Controls Row with Export CSV and Print Button beside them */}
+      {/* Search Bar & Filter Controls Row */}
       <div className="mb-5 flex flex-col gap-2.5 lg:flex-row lg:items-center print:hidden">
         {/* Search Bar Input */}
         <div className="relative flex-1 min-w-[200px]">
@@ -2482,12 +2605,12 @@ function Attendance() {
             data-testid="input-attendance-search"
             value={search}
             onChange={e => setSearch(e.target.value)}
-            placeholder="Search student name, ID, event, or officer..."
+            placeholder="Search student name, ID, program, or officer..."
             className="h-10 w-full rounded-lg border border-input bg-card pl-9 pr-3 text-sm outline-none focus:border-primary"
           />
         </div>
 
-        {/* Filter Dropdowns, Event Selector, Sorting, CSV Export & Print Buttons */}
+        {/* Filter Dropdowns, Sorting, CSV Export & Print Buttons */}
         <div className="flex flex-wrap items-center gap-2">
           {/* Event Filter Select */}
           <select
@@ -2511,12 +2634,22 @@ function Attendance() {
             className="h-10 rounded-lg border border-input bg-card px-3 text-xs font-bold outline-none focus:border-primary cursor-pointer"
           >
             <option value="all">All Sessions</option>
-            <option value="Morning IN">Morning IN</option>
-            <option value="Morning OUT">Morning OUT</option>
-            <option value="Afternoon IN">Afternoon IN</option>
-            <option value="Afternoon OUT">Afternoon OUT</option>
-            <option value="Evening IN">Evening IN</option>
-            <option value="Evening OUT">Evening OUT</option>
+            {uniqueSessionNames.map(name => (
+              <option key={name} value={name}>{name}</option>
+            ))}
+          </select>
+
+          {/* Program Select — Dynamically populated from actual student data */}
+          <select
+            data-testid="select-attendance-program"
+            value={program}
+            onChange={e => setProgram(e.target.value)}
+            className="h-10 rounded-lg border border-input bg-card px-3 text-xs font-bold outline-none focus:border-primary cursor-pointer"
+          >
+            <option value="all">All Programs</option>
+            {uniquePrograms.map((p) => (
+              <option key={p} value={p}>{p}</option>
+            ))}
           </select>
 
           {/* Year Level Select */}
@@ -2533,17 +2666,17 @@ function Attendance() {
             <option value="4">4th Year</option>
           </select>
 
-          {/* Program Select */}
+          {/* Status Filter (All / Present / Absent) */}
           <select
-            data-testid="select-attendance-program"
-            value={program}
-            onChange={e => setProgram(e.target.value)}
+            data-testid="select-attendance-status"
+            value={statusFilter}
+            onChange={e => setStatusFilter(e.target.value)}
             className="h-10 rounded-lg border border-input bg-card px-3 text-xs font-bold outline-none focus:border-primary cursor-pointer"
+            title="Filter by Attendance Status"
           >
-            <option value="all">All Programs</option>
-            <option value="BSIS">BSIS</option>
-            <option value="BSED">BPED</option>
-            <option value="BEED">ACT-AD</option>
+            <option value="all">All Statuses</option>
+            <option value="present">Present Only</option>
+            <option value="absent">Absent Only</option>
           </select>
 
           {/* Sorting Dropdown */}
@@ -2554,15 +2687,18 @@ function Attendance() {
             className="h-10 rounded-lg border border-input bg-card px-3 text-xs font-bold outline-none focus:border-primary cursor-pointer"
             title="Sort Attendance Records"
           >
+            <option value="status-present-first">Status (Present First)</option>
+            <option value="status-absent-first">Status (Absent First)</option>
+            <option value="name-asc">Student Name (A–Z)</option>
+            <option value="name-desc">Student Name (Z–A)</option>
+            <option value="id-asc">Student ID (Asc)</option>
+            <option value="program-asc">Program (A–Z)</option>
+            <option value="year-asc">Year Level (Asc)</option>
             <option value="time-desc">Time (Newest First)</option>
             <option value="time-asc">Time (Oldest First)</option>
-            <option value="name-asc">Student (A–Z)</option>
-            <option value="name-desc">Student (Z–A)</option>
-            <option value="id-asc">Student ID (Asc)</option>
-            <option value="event-asc">Event Name (A–Z)</option>
           </select>
 
-          {/* Export CSV Button placed beside Print Button */}
+          {/* Export CSV Button */}
           <Button
             variant="outline"
             data-testid="button-export-csv-attendance"
@@ -2589,7 +2725,7 @@ function Attendance() {
 
       {/* On-Screen Records Table */}
       <div className="overflow-hidden rounded-xl border border-card-border bg-card print:hidden">
-        {q.isLoading ? (
+        {q.isLoading || studentsQ.isLoading ? (
           <div className="p-5"><Loading /></div>
         ) : q.isError ? (
           <div className="p-5"><ErrorState retry={() => q.refetch()} /></div>
@@ -2598,30 +2734,49 @@ function Attendance() {
             <table className="w-full min-w-[850px] text-left">
               <thead className="border-b border-border bg-muted/45 font-mono text-[10px] uppercase tracking-[.1em] text-muted-foreground">
                 <tr>
-                  {['Student Name & ID', 'Event / Session', 'Time Scanned', 'Officer', 'Status'].map(h => <th key={h} className="px-5 py-3.5">{h}</th>)}
+                  {['#', 'Student Name & ID', 'Program & Year', 'Event / Session', 'Time Scanned', 'Officer', 'Status'].map(h => (
+                    <th key={h} className="px-4 py-3.5">{h}</th>
+                  ))}
                 </tr>
               </thead>
               <tbody>
-                {records.map(r => (
+                {records.map((r, idx) => (
                   <tr data-testid={`row-attendance-${r.id}`} key={r.id} className="border-b border-border/70 last:border-0 hover:bg-muted/30">
-                    <td className="px-5 py-3.5">
-                      <div className="text-xs font-bold">{r.studentName}</div>
-                      <div className="mt-0.5 font-mono text-[10px] text-muted-foreground">{r.studentId} · {r.yearLevel}</div>
+                    <td className="px-4 py-3.5 font-mono text-xs text-muted-foreground">{idx + 1}</td>
+                    <td className="px-4 py-3.5">
+                      <div className="text-xs font-bold text-foreground">{r.studentName}</div>
+                      <div className="mt-0.5 font-mono text-[10px] text-muted-foreground">{r.studentId}</div>
                     </td>
-                    <td className="px-5 py-3.5">
-                      <div className="text-xs font-semibold">{r.eventName}</div>
+                    <td className="px-4 py-3.5">
+                      <span className="font-mono text-xs font-semibold text-foreground">{r.program}</span>
+                      <span className="ml-1 text-[10px] text-muted-foreground">Yr {r.yearLevel}</span>
+                    </td>
+                    <td className="px-4 py-3.5">
+                      <div className="text-xs font-semibold text-foreground">{r.eventName}</div>
                       <div className="mt-0.5 text-[10px] font-bold text-primary">{r.sessionName}</div>
                     </td>
-                    <td className="px-5 py-3.5 font-mono text-[10px] text-muted-foreground">{new Date(r.scannedAt).toLocaleString()}</td>
-                    <td className="px-5 py-3.5 text-xs">{r.officerName}</td>
-                    <td className="px-5 py-3.5"><Badge tone={r.status === 'present' ? 'success' : 'warning'}>{r.status}</Badge></td>
+                    <td className="px-4 py-3.5 font-mono text-[10px] text-muted-foreground">
+                      {r.scannedAt ? new Date(r.scannedAt).toLocaleString() : <span className="italic opacity-60">Not scanned</span>}
+                    </td>
+                    <td className="px-4 py-3.5 text-xs text-muted-foreground">{r.officerName}</td>
+                    <td className="px-4 py-3.5">
+                      {r.status === 'present' ? (
+                        <span className="inline-flex items-center gap-1 rounded-md bg-emerald-500/15 px-2 py-0.5 font-mono text-[10px] font-extrabold uppercase text-emerald-700 dark:text-emerald-300 border border-emerald-500/30">
+                          ✓ Present
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center gap-1 rounded-md bg-rose-500/15 px-2 py-0.5 font-mono text-[10px] font-extrabold uppercase text-rose-700 dark:text-rose-300 border border-rose-500/30">
+                          ✕ Absent
+                        </span>
+                      )}
+                    </td>
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
         ) : (
-          <div className="p-5"><EmptyState title="No attendance records" text="Scanned student attendances will appear here." /></div>
+          <div className="p-5"><EmptyState title="No attendance records" text="No student records match the selected filter criteria." /></div>
         )}
       </div>
 
@@ -2666,7 +2821,7 @@ function Attendance() {
                   DIMATALING CAMPUS · OFFICIAL ATTENDANCE REPORT
                 </h1>
                 <div className="text-[9.5px] font-semibold text-slate-600">
-                  Office of Student Affairs & Services · Certified Attendance Roster
+                  Office of Student Affairs &amp; Services · Certified Attendance Roster
                 </div>
               </div>
             </div>
@@ -2692,12 +2847,14 @@ function Attendance() {
               <strong className="text-slate-900 truncate block">{program === 'all' ? 'All Programs' : program}</strong>
             </div>
             <div>
-              <span className="font-mono text-[8.5px] text-slate-500 block uppercase">Year Level</span>
-              <strong className="text-slate-900 truncate block">{yearLevel === 'all' ? 'All Years' : `Year ${yearLevel}`}</strong>
+              <span className="font-mono text-[8.5px] text-slate-500 block uppercase">Status Filter</span>
+              <strong className="text-slate-900 truncate block">{statusFilter === 'all' ? 'All (Present & Absent)' : statusFilter.toUpperCase()}</strong>
             </div>
             <div>
-              <span className="font-mono text-[8.5px] text-slate-500 block uppercase">Verified Present</span>
-              <strong className="text-emerald-800 font-black truncate block">{present} / {records.length} Records</strong>
+              <span className="font-mono text-[8.5px] text-slate-500 block uppercase">Present / Absent</span>
+              <strong className="text-emerald-800 font-black truncate block">
+                {presentCount} Present · {absentCount} Absent
+              </strong>
             </div>
           </div>
 
@@ -2706,11 +2863,11 @@ function Attendance() {
             <thead>
               <tr className="border-y-2 border-slate-900 bg-slate-100 font-mono uppercase text-slate-800">
                 <th className="py-2 px-1.5 w-7 text-center">#</th>
-                <th className="py-2 px-2 w-28">Student ID</th>
+                <th className="py-2 px-2 w-24">Student ID</th>
                 <th className="py-2 px-2">Student Name</th>
-                <th className="py-2 px-2 w-24">Program & Year</th>
-                <th className="py-2 px-2">Event & Session</th>
-                <th className="py-2 px-2 w-36">Time Scanned</th>
+                <th className="py-2 px-2 w-24">Program &amp; Year</th>
+                <th className="py-2 px-2">Event &amp; Session</th>
+                <th className="py-2 px-2 w-32">Time Scanned</th>
                 <th className="py-2 px-2">Verified Officer</th>
                 <th className="py-2 px-2 w-16 text-center">Status</th>
               </tr>
@@ -2723,16 +2880,20 @@ function Attendance() {
                     <td className="py-1.5 px-2 font-mono font-bold text-slate-900">{r.studentId}</td>
                     <td className="py-1.5 px-2 font-bold text-slate-900">{r.studentName}</td>
                     <td className="py-1.5 px-2 font-mono font-semibold text-slate-700">
-                      {((r as unknown as Record<string, unknown>).program as string) || 'BSIS'} - Yr {r.yearLevel}
+                      {r.program} - Yr {r.yearLevel}
                     </td>
                     <td className="py-1.5 px-2">
                       <span className="font-semibold text-slate-900">{r.eventName}</span>
                       <span className="block text-[8.5px] font-bold text-emerald-800">{r.sessionName}</span>
                     </td>
-                    <td className="py-1.5 px-2 font-mono text-slate-700">{new Date(r.scannedAt).toLocaleString()}</td>
+                    <td className="py-1.5 px-2 font-mono text-slate-700">
+                      {r.scannedAt ? new Date(r.scannedAt).toLocaleString() : <span className="italic text-slate-400">Not scanned</span>}
+                    </td>
                     <td className="py-1.5 px-2 text-slate-800">{r.officerName}</td>
                     <td className="py-1.5 px-2 text-center">
-                      <span className="font-mono text-[7.5px] font-bold uppercase text-emerald-800 bg-emerald-100 px-1.5 py-0.5 rounded">
+                      <span className={`font-mono text-[7.5px] font-bold uppercase px-1.5 py-0.5 rounded ${
+                        r.status === 'present' ? 'text-emerald-800 bg-emerald-100' : 'text-rose-800 bg-rose-100'
+                      }`}>
                         {r.status}
                       </span>
                     </td>
@@ -2741,7 +2902,7 @@ function Attendance() {
               ) : (
                 <tr>
                   <td colSpan={8} className="py-8 text-center text-slate-500 italic">
-                    No verified attendance records match the selected filter criteria.
+                    No attendance records match the selected filter criteria.
                   </td>
                 </tr>
               )}
@@ -2751,13 +2912,13 @@ function Attendance() {
           {/* Official Signatures Section */}
           <div className="mt-10 pt-4 border-t border-slate-300 grid grid-cols-2 gap-12 text-xs">
             <div>
-              <div className="text-[9.5px] font-mono text-slate-500 uppercase">Prepared & Verified By:</div>
+              <div className="text-[9.5px] font-mono text-slate-500 uppercase">Prepared &amp; Verified By:</div>
               <div className="mt-7 border-b border-slate-900 w-64" />
               <div className="mt-1 font-bold text-slate-900">Attendance Officer / Staff</div>
               <div className="text-[9.5px] text-slate-500 font-mono">ZDSPGC Dimataling Campus</div>
             </div>
             <div>
-              <div className="text-[9.5px] font-mono text-slate-500 uppercase">Certified Correct & Approved:</div>
+              <div className="text-[9.5px] font-mono text-slate-500 uppercase">Certified Correct &amp; Approved:</div>
               <div className="mt-7 border-b border-slate-900 w-64" />
               <div className="mt-1 font-bold text-slate-900">Campus Registrar / Administrator</div>
               <div className="text-[9.5px] text-slate-500 font-mono">ZDSPGC Dimataling Campus</div>
@@ -3049,11 +3210,10 @@ function SettingsPage() {
   const q = useGetSettings();
   const update = useUpdateSettings();
   const { toast } = useToast();
-  const s = q.data as (Settings & { lateThresholdMinutes?: number }) | undefined;
+  const s = q.data as Settings | undefined;
 
   const [school, setSchool] = useState('');
   const [campus, setCampus] = useState('');
-  const [lateThreshold, setLateThreshold] = useState(15);
   const [auto, setAuto] = useState(true);
   const [manualMode, setManualMode] = useState(false);
   const [dupe, setDupe] = useState(true);
@@ -3063,7 +3223,6 @@ function SettingsPage() {
     if (s) {
       setSchool(s.schoolName || 'ZDSPGC – Dimataling Campus');
       setCampus(s.campusName || 'Dimataling Campus');
-      setLateThreshold(s.lateThresholdMinutes ?? 15);
       setAuto(s.automaticSessions ?? true);
       setManualMode((s as unknown as Record<string, unknown>).manualSessionMode as boolean ?? false);
       setDupe(s.duplicateProtection ?? true);
@@ -3081,7 +3240,6 @@ function SettingsPage() {
           manualSessionMode: manualMode,
           duplicateProtection: dupe,
           attendanceConfirmation: confirm,
-          ...({ lateThresholdMinutes: lateThreshold } as Record<string, unknown>),
         } as Record<string, unknown>,
       },
       {
@@ -3094,18 +3252,17 @@ function SettingsPage() {
 
   return (
     <AppShell>
-      <PageHeader eyebrow="Configuration / system" title="System Settings" description="Configure campus defaults, late thresholds, photo upload limits, and session control modes." action={<Button data-testid="button-save-settings" onClick={save} disabled={update.isPending}><Check className="size-4" />{update.isPending ? 'Saving…' : 'Save Changes'}</Button>} />
+      <PageHeader eyebrow="Configuration / system" title="System Settings" description="Configure campus defaults, photo upload limits, and session control modes." action={<Button data-testid="button-save-settings" onClick={save} disabled={update.isPending}><Check className="size-4" />{update.isPending ? 'Saving…' : 'Save Changes'}</Button>} />
       {q.isLoading ? <Loading rows={3} /> : q.isError ? <ErrorState retry={() => q.refetch()} /> : (
         <div className="grid max-w-3xl gap-5">
           <section className="rounded-xl border border-card-border bg-card p-6">
             <div className="mb-6 flex items-center gap-3">
               <div className="grid size-9 place-items-center rounded-lg bg-primary/10 text-primary"><Settings2 className="size-4" /></div>
-              <div><h2 className="text-sm font-extrabold">School Identity &amp; Attendance Rules</h2><p className="text-xs text-muted-foreground">Shown across printable reports, console headers, and status calculations.</p></div>
+              <div><h2 className="text-sm font-extrabold">School Identity &amp; Campus Defaults</h2><p className="text-xs text-muted-foreground">Shown across printable reports, console headers, and system records.</p></div>
             </div>
-            <div className="grid gap-4 sm:grid-cols-3">
+            <div className="grid gap-4 sm:grid-cols-2">
               <Field label="School Name" value={school || s?.schoolName || 'ZDSPGC – Dimataling Campus'} onChange={setSchool} />
               <Field label="Campus Name" value={campus || s?.campusName || 'Dimataling Campus'} onChange={setCampus} />
-              <Field label="Late Threshold (Mins)" type="number" value={String(lateThreshold)} onChange={v => setLateThreshold(Number(v) || 15)} />
             </div>
           </section>
 
@@ -3119,7 +3276,7 @@ function SettingsPage() {
                 ['Automatic Sessions (Time-Based)', 'Automatically activate Morning IN/OUT, Afternoon IN/OUT, Evening IN/OUT based on current time.', auto, setAuto],
                 ['Manual Session Activation', 'Allow Admin to manually activate specific attendance sessions.', manualMode, setManualMode],
                 ['Duplicate Protection', 'Block duplicate scans for the same student and session.', dupe, setDupe],
-                ['Visual Confirmation Step', 'Show student photo to Officer for visual verification before recording.', confirm, setConfirm],
+                ['Visual Confirmation Step', 'Show student uploaded image to Officer for visual verification before recording.', confirm, setConfirm],
               ].map(([label, text, value, setter]) => (
                 <button
                   data-testid={`toggle-${String(label).toLowerCase().replaceAll(' ', '-')}`}
@@ -3158,10 +3315,6 @@ function Scanner() {
   const [showModal, setShowModal] = useState(false);
   const [message, setMessage] = useState('');
   const [lastScan, setLastScan] = useState<{ name: string; id: string; session: string; status: string; time: string; photo: string | null }| null>(null);
-
-  // Fast Gate Mode: Instant auto-confirm without requiring modal clicks
-  const [fastMode, setFastMode] = useState(true);
-  const [recentFlash, setRecentFlash] = useState<{ name: string; id: string; status: string; session: string } | null>(null);
 
   const [isScanning, setIsScanning] = useState(false);
   const [detectionEngine, setDetectionEngine] = useState<'native' | 'canvas'>('native');
@@ -3205,7 +3358,6 @@ function Scanner() {
         videoRef.current.play();
       }
     } catch {
-      // Fallback without strict constraints
       try {
         const fallbackStream = await navigator.mediaDevices.getUserMedia({ video: true });
         if (videoRef.current) {
@@ -3298,7 +3450,7 @@ function Scanner() {
       setToken(extractedToken);
       setStudentIdInput(extractedStudentId);
 
-      // Debounce: prevent immediate re-trigger on the exact same student QR within 1.5s
+      // Debounce: prevent re-triggering while modal is already open
       const now = Date.now();
       if (
         lastScannedId.current.id === extractedStudentId &&
@@ -3308,13 +3460,8 @@ function Scanner() {
       }
       lastScannedId.current = { id: extractedStudentId, timestamp: now };
 
-      if (fastMode) {
-        // Fast Gate Mode: Instant 1-step confirmation
-        handleInstantAutoConfirm(extractedToken, extractedStudentId);
-      } else {
-        // Review Modal Mode: Show verification popup
-        verify(extractedToken, extractedStudentId);
-      }
+      // Immediately trigger student photo verification popup
+      verify(extractedToken, extractedStudentId);
     };
 
     const scanFrame = async () => {
@@ -3325,6 +3472,7 @@ function Scanner() {
         isScanning &&
         !isScanLocked.current &&
         !isDetecting.current &&
+        !showModal &&
         video &&
         video.readyState === video.HAVE_ENOUGH_DATA &&
         video.videoWidth > 0
@@ -3388,64 +3536,9 @@ function Scanner() {
     return () => {
       if (animId) cancelAnimationFrame(animId);
     };
-  }, [isScanning, token, fastMode]);
+  }, [isScanning, token, showModal]);
 
-  // Instant Auto-Confirm for high-throughput gate scanning
-  const handleInstantAutoConfirm = (activeToken: string, activeStudent: string) => {
-    if (!activeToken || !activeStudent) return;
-    isScanLocked.current = true;
-    setMessage('');
-
-    confirm.mutate(
-      { data: { eventToken: activeToken, studentId: activeStudent } },
-      {
-        onSuccess: (record) => {
-          if (soundEnabled) playBeep(880, 0.12, 'double');
-          const isLate = record.status === 'late';
-          setRecentFlash({
-            name: record.studentName,
-            id: record.studentId,
-            status: isLate ? 'Late' : 'Present',
-            session: record.sessionName,
-          });
-
-          setLastScan({
-            name: record.studentName,
-            id: record.studentId,
-            session: record.sessionName,
-            status: isLate ? 'Late' : 'Present',
-            time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-            photo: (record as { profilePhoto?: string | null }).profilePhoto ?? students.find(s => s.studentId === record.studentId)?.profilePhoto ?? null,
-          });
-
-          queryClient.invalidateQueries({ queryKey: getListAttendanceQueryKey() });
-          setMessage(`✓ Attendance recorded: ${record.studentName} (${record.studentId})`);
-
-          // Clear visual HUD flash after 1.8s
-          setTimeout(() => setRecentFlash(null), 1800);
-
-          // Fast unlock so next student in line can be scanned immediately (1.0s)
-          setTimeout(() => {
-            isScanLocked.current = false;
-          }, 1000);
-        },
-        onError: (err: unknown) => {
-          if (soundEnabled) playBeep(220, 0.2, 'error');
-          const apiError =
-            (err as { response?: { data?: { error?: string } } })?.response?.data?.error ||
-            (err as { message?: string })?.message ||
-            'Attendance scan failed. Please check event status or student ID.';
-          setMessage(`❌ ${apiError}`);
-          // Unlock on error after short delay
-          setTimeout(() => {
-            isScanLocked.current = false;
-          }, 1500);
-        },
-      }
-    );
-  };
-
-  // Review Modal Verify Handler
+  // Review Modal Verify Handler — Pops up student photo modal
   const verify = (evtToken?: string, sId?: string) => {
     const activeToken = (evtToken || token).trim();
     const activeStudent = (sId || studentIdInput).trim();
@@ -3484,6 +3577,7 @@ function Scanner() {
       { data: { eventToken: activeToken, studentId: activeStudent } },
       {
         onSuccess: () => {
+          if (soundEnabled) playBeep(880, 0.12, 'double');
           setLastScan({
             name: candidate.studentName,
             id: candidate.studentId,
@@ -3496,8 +3590,16 @@ function Scanner() {
           setShowModal(false);
           setCandidate(undefined);
           setStudentIdInput('');
-          setMessage('✓ Attendance recorded successfully!');
+          setMessage(`✓ Attendance recorded: ${candidate.studentName} (${candidate.studentId})`);
           setTimeout(() => { isScanLocked.current = false; }, 800);
+        },
+        onError: (err: unknown) => {
+          if (soundEnabled) playBeep(220, 0.2, 'error');
+          const apiError =
+            (err as { response?: { data?: { error?: string } } })?.response?.data?.error ||
+            (err as { message?: string })?.message ||
+            'Could not record attendance.';
+          setMessage(`❌ ${apiError}`);
         },
       }
     );
@@ -3522,29 +3624,15 @@ function Scanner() {
             </span>
           </div>
           <p className="mt-1 text-xs text-muted-foreground">
-            Print CSC QR Code ONCE per semester — active event and session are automatically attached to all scans.
+            Scan student QR codes to verify their uploaded profile image and confirm attendance.
           </p>
         </div>
 
         <div className="flex flex-wrap items-center gap-2.5">
-          {/* Fast Gate Mode Toggle */}
-          <button
-            type="button"
-            onClick={() => setFastMode((prev) => !prev)}
-            className={`flex items-center gap-2 rounded-xl px-3.5 py-2 text-xs font-extrabold transition-all border ${
-              fastMode
-                ? 'bg-emerald-500/15 border-emerald-500/40 text-emerald-800 dark:text-emerald-300 shadow-sm'
-                : 'bg-muted border-border text-muted-foreground'
-            }`}
-          >
-            <span className={`size-2 rounded-full ${fastMode ? 'bg-emerald-500 animate-pulse' : 'bg-muted-foreground'}`} />
-            {fastMode ? '⚡ Fast Gate Mode (Auto-Confirm ON)' : '🔍 Review Modal Mode'}
-          </button>
-
           {activeEvent ? (
             <div className="flex items-center gap-2 rounded-xl bg-emerald-500/10 px-3.5 py-2 border border-emerald-500/30">
               <span className="size-2.5 rounded-full bg-emerald-500 animate-pulse" />
-              <span className="text-xs font-bold text-emerald-800 dark:text-emerald-300">Active: {activeEvent.name}</span>
+              <span className="text-xs font-bold text-emerald-800 dark:text-emerald-300">Active Event: {activeEvent.name}</span>
             </div>
           ) : (
             <div className="flex items-center gap-2 rounded-xl bg-amber-500/10 px-3.5 py-2 border border-amber-500/30">
@@ -3592,22 +3680,6 @@ function Scanner() {
                 <div className="absolute bottom-0 left-0 size-8 border-b-4 border-l-4 border-emerald-500 rounded-bl-lg" />
                 <div className="absolute bottom-0 right-0 size-8 border-b-4 border-r-4 border-emerald-500 rounded-br-lg" />
               </div>
-
-              {/* Instant Verification HUD Banner overlay */}
-              {recentFlash && (
-                <div className="absolute inset-x-4 bottom-4 z-20 flex items-center gap-3 rounded-xl bg-emerald-600/95 p-3 text-white shadow-xl backdrop-blur-md animate-in fade-in zoom-in-95 duration-200">
-                  <div className="grid size-9 shrink-0 place-items-center rounded-lg bg-white text-emerald-700 font-extrabold">
-                    ✓
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="truncate text-xs font-black">{recentFlash.name}</div>
-                    <div className="font-mono text-[10px] opacity-90">{recentFlash.id} · {recentFlash.session}</div>
-                  </div>
-                  <span className="rounded-md bg-white/20 px-2 py-0.5 text-[10px] font-mono font-bold uppercase">
-                    {recentFlash.status}
-                  </span>
-                </div>
-              )}
             </div>
 
             {/* Launch / Stop Scanner Button */}
@@ -3661,20 +3733,12 @@ function Scanner() {
                       const s = val.substring(colonIdx + 1);
                       setToken(t);
                       setStudentIdInput(s);
-                      if (fastMode) {
-                        handleInstantAutoConfirm(t, s);
-                      } else {
-                        verify(t, s);
-                      }
+                      verify(t, s);
                     }
                   }}
                   onKeyDown={e => {
                     if (e.key === 'Enter') {
-                      if (fastMode) {
-                        handleInstantAutoConfirm(token, studentIdInput);
-                      } else {
-                        verify();
-                      }
+                      verify();
                     }
                   }}
                   placeholder="Type or scan Student ID (e.g. 26DM0166)"
@@ -3684,13 +3748,13 @@ function Scanner() {
 
               {/* Scanning status indicator (shows when camera is active) */}
               {isScanning ? (
-                <div className={`flex items-center justify-center gap-2 rounded-xl py-2.5 text-xs font-bold ${confirm.isPending || scan.isPending ? 'bg-amber-500/20 text-amber-700 dark:text-amber-300' : 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-300'}`}>
-                  <span className={`size-2 rounded-full ${confirm.isPending || scan.isPending ? 'bg-amber-500 animate-pulse' : 'bg-emerald-500 animate-pulse'}`} />
-                  {confirm.isPending ? '⚡ Instant Recording…' : scan.isPending ? 'Verifying Student…' : fastMode ? '⚡ Fast Gate Active — Hold QR code up' : 'Ready — Hold QR code up'}
+                <div className={`flex items-center justify-center gap-2 rounded-xl py-2.5 text-xs font-bold ${scan.isPending ? 'bg-amber-500/20 text-amber-700 dark:text-amber-300' : 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-300'}`}>
+                  <span className={`size-2 rounded-full ${scan.isPending ? 'bg-amber-500 animate-pulse' : 'bg-emerald-500 animate-pulse'}`} />
+                  {scan.isPending ? 'Verifying Student…' : 'Ready — Hold Student QR up to camera'}
                 </div>
               ) : (
-                <Button data-testid="button-verify-student" disabled={!studentIdInput.trim() || scan.isPending || confirm.isPending} onClick={() => fastMode ? handleInstantAutoConfirm(token, studentIdInput) : verify()} className="h-10 w-full mt-1">
-                  <Search className="size-4" /> {fastMode ? '⚡ Instant Record Attendance' : 'Verify Student ID'}
+                <Button data-testid="button-verify-student" disabled={!studentIdInput.trim() || scan.isPending} onClick={() => verify()} className="h-10 w-full mt-1">
+                  <Search className="size-4" /> {scan.isPending ? 'Verifying...' : 'Verify Student ID'}
                 </Button>
               )}
 
@@ -3707,11 +3771,7 @@ function Scanner() {
                         type="button"
                         onClick={() => {
                           setStudentIdInput(s.studentId);
-                          if (fastMode) {
-                            handleInstantAutoConfirm(token, s.studentId);
-                          } else {
-                            verify(token, s.studentId);
-                          }
+                          verify(token, s.studentId);
                         }}
                         className="rounded-md bg-muted px-2 py-1 text-[10px] font-semibold text-foreground hover:bg-primary/20 hover:text-primary transition-colors"
                       >
@@ -3799,24 +3859,24 @@ function Scanner() {
         </div>
       </div>
 
-      {/* VERIFY STUDENT IDENTITY MODAL (Match Image 4) */}
+      {/* VERIFY STUDENT IDENTITY MODAL WITH UPLOADED PHOTO */}
       {showModal && candidate && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 rise-in">
-          <div className="w-full max-w-sm overflow-hidden rounded-2xl bg-white shadow-2xl border border-gray-200">
-            {/* Header: Dark Blue Bar with Yellow Badge */}
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4 animate-in fade-in duration-150">
+          <div className="w-full max-w-sm overflow-hidden rounded-2xl bg-card border border-border shadow-2xl">
+            {/* Header: Dark Bar with Verification Badge */}
             <div className="flex items-center justify-between bg-slate-900 px-5 py-3.5 text-white">
               <div className="flex items-center gap-2">
                 <CheckCircle2 className="size-4 text-emerald-400" />
                 <span className="text-xs font-bold tracking-tight">Verify Student Identity</span>
               </div>
               <span className="rounded-full bg-amber-400/20 border border-amber-400/50 px-2.5 py-0.5 font-mono text-[10px] font-bold text-amber-300">
-                Scan Confirmed
+                Photo on File
               </span>
             </div>
 
             {/* Modal Body */}
             <div className="p-6 text-center">
-              {/* Golden Avatar Box (Match Image 4) */}
+              {/* Student Uploaded Image Box */}
               <div className="mx-auto mb-4 flex justify-center">
                 <StudentAvatar
                   src={candidate.profilePhoto}
@@ -3826,30 +3886,38 @@ function Scanner() {
               </div>
 
               {/* Student Name */}
-              <h3 className="text-xl font-extrabold text-slate-900">{candidate.studentName}</h3>
-              <p className="mt-1 font-mono text-xs font-bold text-slate-500">
+              <h3 className="text-xl font-extrabold text-foreground">{candidate.studentName}</h3>
+              <p className="mt-1 font-mono text-xs font-bold text-muted-foreground">
                 {candidate.studentId} · Year {candidate.yearLevel} · {candidate.program}
               </p>
-              <div className="mt-2 text-xs font-semibold text-emerald-700 bg-emerald-50 py-1 px-3 rounded-lg inline-block">
+
+              <div className="mt-2.5 text-xs font-semibold text-emerald-700 dark:text-emerald-300 bg-emerald-500/15 py-1 px-3 rounded-lg inline-block border border-emerald-500/30">
                 Event: {candidate.eventName} ({candidate.sessionName})
               </div>
 
-              {/* Buttons */}
+              {candidate.alreadyRecorded && (
+                <div className="mt-2 text-xs font-bold text-amber-700 dark:text-amber-300 bg-amber-500/15 py-1 px-3 rounded-lg inline-block border border-amber-500/30">
+                  ⚠️ Attendance already recorded for this session
+                </div>
+              )}
+
+              {/* Confirm / Deny Action Buttons */}
               <div className="mt-6 grid gap-2.5">
                 <button
                   data-testid="button-confirm-attendance"
                   type="button"
                   onClick={handleConfirmSave}
-                  className="w-full rounded-xl bg-emerald-600 py-3 text-sm font-extrabold text-white shadow-md hover:bg-emerald-700 transition-colors"
+                  disabled={confirm.isPending}
+                  className="w-full rounded-xl bg-emerald-600 py-3 text-sm font-extrabold text-white shadow-md hover:bg-emerald-700 transition-colors disabled:opacity-50"
                 >
-                  Confirm & Save
+                  {confirm.isPending ? 'Recording…' : '✓ Confirm & Save Attendance'}
                 </button>
                 <button
                   type="button"
                   onClick={handleDenyReject}
-                  className="w-full rounded-xl border border-gray-300 bg-white py-2.5 text-xs font-bold text-gray-700 hover:bg-gray-50 transition-colors"
+                  className="w-full rounded-xl border border-border bg-card py-2.5 text-xs font-bold text-foreground hover:bg-muted transition-colors"
                 >
-                  Deny / Reject
+                  ✕ Deny / Reject
                 </button>
               </div>
             </div>
