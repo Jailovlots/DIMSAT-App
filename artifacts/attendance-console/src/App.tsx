@@ -3159,12 +3159,20 @@ function Scanner() {
   const [message, setMessage] = useState('');
   const [lastScan, setLastScan] = useState<{ name: string; id: string; session: string; status: string; time: string; photo: string | null }| null>(null);
 
+  // Fast Gate Mode: Instant auto-confirm without requiring modal clicks
+  const [fastMode, setFastMode] = useState(true);
+  const [recentFlash, setRecentFlash] = useState<{ name: string; id: string; status: string; session: string } | null>(null);
+
   const [isScanning, setIsScanning] = useState(false);
+  const [detectionEngine, setDetectionEngine] = useState<'native' | 'canvas'>('native');
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const [soundEnabled] = useState(true);
-  // Prevent double-scan while modal is open or request in-flight
+
+  // High-performance concurrency guards
   const isScanLocked = useRef(false);
+  const isDetecting = useRef(false);
+  const lastScannedId = useRef<{ id: string; timestamp: number }>({ id: '', timestamp: 0 });
 
   const records = listAttendance.data || [];
   const students = studentsQuery.data || [];
@@ -3184,13 +3192,29 @@ function Scanner() {
   const startCamera = async () => {
     setIsScanning(true);
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: {
+          facingMode: 'environment',
+          width: { ideal: 1280, max: 1920 },
+          height: { ideal: 720, max: 1080 },
+          frameRate: { ideal: 30, max: 60 },
+        },
+      });
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
         videoRef.current.play();
       }
     } catch {
-      // Camera stream fallback
+      // Fallback without strict constraints
+      try {
+        const fallbackStream = await navigator.mediaDevices.getUserMedia({ video: true });
+        if (videoRef.current) {
+          videoRef.current.srcObject = fallbackStream;
+          videoRef.current.play();
+        }
+      } catch {
+        // Camera unavailable
+      }
     }
   };
 
@@ -3203,47 +3227,155 @@ function Scanner() {
     }
   };
 
-  // Real-time jsQR canvas scan loop — works in all browsers
+  const playBeep = (freq: number = 880, duration: number = 0.12, type: 'success' | 'double' | 'error' = 'success') => {
+    try {
+      const AudioCtx = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
+      const ctx = new AudioCtx();
+      if (type === 'double') {
+        const osc1 = ctx.createOscillator();
+        const osc2 = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc1.connect(gain);
+        osc2.connect(gain);
+        gain.connect(ctx.destination);
+        osc1.type = 'sine';
+        osc1.frequency.setValueAtTime(659, ctx.currentTime);
+        osc2.type = 'sine';
+        osc2.frequency.setValueAtTime(880, ctx.currentTime + 0.08);
+        gain.gain.setValueAtTime(0.12, ctx.currentTime);
+        osc1.start(ctx.currentTime);
+        osc1.stop(ctx.currentTime + 0.07);
+        osc2.start(ctx.currentTime + 0.08);
+        osc2.stop(ctx.currentTime + 0.18);
+      } else {
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.type = type === 'error' ? 'sawtooth' : 'sine';
+        osc.frequency.value = freq;
+        gain.gain.setValueAtTime(0.12, ctx.currentTime);
+        osc.start();
+        osc.stop(ctx.currentTime + duration);
+      }
+    } catch {
+      // AudioContext fallback
+    }
+  };
+
+  // Hardware-accelerated + downscaled fast scan loop
   useEffect(() => {
     let animId: number;
+    let nativeBarcodeDetector: any = null;
 
-    const scanFrame = () => {
+    if (typeof window !== 'undefined' && 'BarcodeDetector' in window) {
+      try {
+        nativeBarcodeDetector = new (window as any).BarcodeDetector({ formats: ['qr_code'] });
+        setDetectionEngine('native');
+      } catch {
+        nativeBarcodeDetector = null;
+        setDetectionEngine('canvas');
+      }
+    } else {
+      setDetectionEngine('canvas');
+    }
+
+    const processScannedRaw = (rawCode: string) => {
+      const raw = rawCode.trim();
+      let extractedToken = token;
+      let extractedStudentId = raw;
+
+      if (raw.includes(':')) {
+        const colonIdx = raw.indexOf(':');
+        extractedToken = raw.substring(0, colonIdx).trim();
+        extractedStudentId = raw.substring(colonIdx + 1).trim();
+      } else if (raw.includes('|')) {
+        const parts = raw.split('|');
+        extractedToken = parts[0].trim();
+        extractedStudentId = parts[1].trim();
+      }
+
+      setToken(extractedToken);
+      setStudentIdInput(extractedStudentId);
+
+      // Debounce: prevent immediate re-trigger on the exact same student QR within 1.5s
+      const now = Date.now();
+      if (
+        lastScannedId.current.id === extractedStudentId &&
+        now - lastScannedId.current.timestamp < 1500
+      ) {
+        return;
+      }
+      lastScannedId.current = { id: extractedStudentId, timestamp: now };
+
+      if (fastMode) {
+        // Fast Gate Mode: Instant 1-step confirmation
+        handleInstantAutoConfirm(extractedToken, extractedStudentId);
+      } else {
+        // Review Modal Mode: Show verification popup
+        verify(extractedToken, extractedStudentId);
+      }
+    };
+
+    const scanFrame = async () => {
       const video = videoRef.current;
       const canvas = canvasRef.current;
+
       if (
         isScanning &&
         !isScanLocked.current &&
+        !isDetecting.current &&
         video &&
-        canvas &&
         video.readyState === video.HAVE_ENOUGH_DATA &&
         video.videoWidth > 0
       ) {
-        canvas.width = video.videoWidth;
-        canvas.height = video.videoHeight;
-        const ctx = canvas.getContext('2d');
-        if (ctx) {
-          ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-          const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-          const code = jsQR(imageData.data, imageData.width, imageData.height, {
-            inversionAttempts: 'dontInvert',
-          });
-          if (code && code.data) {
-            isScanLocked.current = true;
-            const raw = code.data.trim();
-            if (raw.includes(':')) {
-              const colonIdx = raw.indexOf(':');
-              const t = raw.substring(0, colonIdx);
-              const s = raw.substring(colonIdx + 1);
-              setToken(t);
-              setStudentIdInput(s);
-              verify(t, s);
-            } else {
-              setStudentIdInput(raw);
-              verify(token, raw);
+        isDetecting.current = true;
+
+        try {
+          // 1. Try Native Hardware BarcodeDetector (1-3ms)
+          if (nativeBarcodeDetector) {
+            const barcodes = await nativeBarcodeDetector.detect(video);
+            if (barcodes && barcodes.length > 0 && barcodes[0].rawValue) {
+              processScannedRaw(barcodes[0].rawValue);
+              isDetecting.current = false;
+              if (isScanning) animId = requestAnimationFrame(scanFrame);
+              return;
             }
           }
+
+          // 2. Optimized Downscaled jsQR Fallback (2-4ms)
+          if (canvas) {
+            const origW = video.videoWidth;
+            const origH = video.videoHeight;
+            // Downscale to 480px width for 94% faster pixel operations
+            const targetW = Math.min(480, origW);
+            const targetH = Math.round(targetW * (origH / origW));
+
+            if (canvas.width !== targetW || canvas.height !== targetH) {
+              canvas.width = targetW;
+              canvas.height = targetH;
+            }
+
+            const ctx = canvas.getContext('2d', { willReadFrequently: true });
+            if (ctx) {
+              ctx.drawImage(video, 0, 0, targetW, targetH);
+              const imageData = ctx.getImageData(0, 0, targetW, targetH);
+              const code = jsQR(imageData.data, targetW, targetH, {
+                inversionAttempts: 'attemptBoth',
+              });
+
+              if (code && code.data) {
+                processScannedRaw(code.data);
+              }
+            }
+          }
+        } catch {
+          // Frame error fallback
+        } finally {
+          isDetecting.current = false;
         }
       }
+
       if (isScanning) {
         animId = requestAnimationFrame(scanFrame);
       }
@@ -3256,48 +3388,88 @@ function Scanner() {
     return () => {
       if (animId) cancelAnimationFrame(animId);
     };
-  }, [isScanning, token]);
+  }, [isScanning, token, fastMode]);
 
-  const playBeep = () => {
-    try {
-      const ctx = new (window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext)();
-      const osc = ctx.createOscillator();
-      const gain = ctx.createGain();
-      osc.connect(gain);
-      gain.connect(ctx.destination);
-      osc.type = 'sine';
-      osc.frequency.value = 880;
-      gain.gain.setValueAtTime(0.1, ctx.currentTime);
-      osc.start();
-      osc.stop(ctx.currentTime + 0.15);
-    } catch {
-      // AudioContext fallback
-    }
+  // Instant Auto-Confirm for high-throughput gate scanning
+  const handleInstantAutoConfirm = (activeToken: string, activeStudent: string) => {
+    if (!activeToken || !activeStudent) return;
+    isScanLocked.current = true;
+    setMessage('');
+
+    confirm.mutate(
+      { data: { eventToken: activeToken, studentId: activeStudent } },
+      {
+        onSuccess: (record) => {
+          if (soundEnabled) playBeep(880, 0.12, 'double');
+          const isLate = record.status === 'late';
+          setRecentFlash({
+            name: record.studentName,
+            id: record.studentId,
+            status: isLate ? 'Late' : 'Present',
+            session: record.sessionName,
+          });
+
+          setLastScan({
+            name: record.studentName,
+            id: record.studentId,
+            session: record.sessionName,
+            status: isLate ? 'Late' : 'Present',
+            time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+            photo: (record as { profilePhoto?: string | null }).profilePhoto ?? students.find(s => s.studentId === record.studentId)?.profilePhoto ?? null,
+          });
+
+          queryClient.invalidateQueries({ queryKey: getListAttendanceQueryKey() });
+          setMessage(`✓ Attendance recorded: ${record.studentName} (${record.studentId})`);
+
+          // Clear visual HUD flash after 1.8s
+          setTimeout(() => setRecentFlash(null), 1800);
+
+          // Fast unlock so next student in line can be scanned immediately (1.0s)
+          setTimeout(() => {
+            isScanLocked.current = false;
+          }, 1000);
+        },
+        onError: (err: unknown) => {
+          if (soundEnabled) playBeep(220, 0.2, 'error');
+          const apiError =
+            (err as { response?: { data?: { error?: string } } })?.response?.data?.error ||
+            (err as { message?: string })?.message ||
+            'Attendance scan failed. Please check event status or student ID.';
+          setMessage(`❌ ${apiError}`);
+          // Unlock on error after short delay
+          setTimeout(() => {
+            isScanLocked.current = false;
+          }, 1500);
+        },
+      }
+    );
   };
 
+  // Review Modal Verify Handler
   const verify = (evtToken?: string, sId?: string) => {
     const activeToken = (evtToken || token).trim();
     const activeStudent = (sId || studentIdInput).trim();
     if (!activeToken || !activeStudent) return;
 
+    isScanLocked.current = true;
     setMessage('');
+
     scan.mutate(
       { data: { eventToken: activeToken, studentId: activeStudent } },
       {
         onSuccess: (data) => {
           setCandidate(data);
           setShowModal(true);
-          if (soundEnabled) playBeep();
-          // Lock stays locked while modal is open — unlocked on modal close
+          if (soundEnabled) playBeep(880, 0.1);
         },
         onError: (err: unknown) => {
+          if (soundEnabled) playBeep(220, 0.2, 'error');
           const apiError =
             (err as { response?: { data?: { error?: string } } })?.response?.data?.error ||
             (err as { message?: string })?.message ||
             'No matching Event QR token or certified student found.';
           setMessage(`❌ ${apiError}`);
-          // Unlock so next scan can try again after 2.5 seconds
-          setTimeout(() => { isScanLocked.current = false; }, 2500);
+          setTimeout(() => { isScanLocked.current = false; }, 2000);
         },
       }
     );
@@ -3325,8 +3497,7 @@ function Scanner() {
           setCandidate(undefined);
           setStudentIdInput('');
           setMessage('✓ Attendance recorded successfully!');
-          // Unlock scanner for next student after 1.5 seconds
-          setTimeout(() => { isScanLocked.current = false; }, 1500);
+          setTimeout(() => { isScanLocked.current = false; }, 800);
         },
       }
     );
@@ -3336,8 +3507,7 @@ function Scanner() {
     setShowModal(false);
     setCandidate(undefined);
     setMessage('Scan rejected by officer.');
-    // Unlock so scanner can read the next code
-    setTimeout(() => { isScanLocked.current = false; }, 1000);
+    setTimeout(() => { isScanLocked.current = false; }, 800);
   };
 
   return (
@@ -3347,21 +3517,42 @@ function Scanner() {
           <div className="flex items-center gap-2">
             <span className="text-xl font-bold text-amber-500">📷</span>
             <h1 className="text-2xl font-black tracking-tight text-foreground font-serif">Event QR Scanner</h1>
-            <span className="rounded-full bg-emerald-500/10 px-2.5 py-0.5 font-mono text-[10px] font-extrabold text-emerald-700 uppercase border border-emerald-500/20">CSC Permanent QR Active</span>
+            <span className="rounded-full bg-emerald-500/10 px-2.5 py-0.5 font-mono text-[10px] font-extrabold text-emerald-700 uppercase border border-emerald-500/20">
+              CSC Permanent QR Active
+            </span>
           </div>
-          <p className="mt-1 text-xs text-muted-foreground">Print CSC QR Code ONCE per semester — active event and session are automatically attached to all scans.</p>
+          <p className="mt-1 text-xs text-muted-foreground">
+            Print CSC QR Code ONCE per semester — active event and session are automatically attached to all scans.
+          </p>
         </div>
-        {activeEvent ? (
-          <div className="flex items-center gap-2 rounded-xl bg-emerald-500/10 px-3.5 py-2 border border-emerald-500/30">
-            <span className="size-2.5 rounded-full bg-emerald-500 animate-pulse" />
-            <span className="text-xs font-bold text-emerald-800">Active Event: {activeEvent.name}</span>
-          </div>
-        ) : (
-          <div className="flex items-center gap-2 rounded-xl bg-amber-500/10 px-3.5 py-2 border border-amber-500/30">
-            <span className="size-2.5 rounded-full bg-amber-500" />
-            <span className="text-xs font-bold text-amber-800">No Active Event (Activate an event in Event Management)</span>
-          </div>
-        )}
+
+        <div className="flex flex-wrap items-center gap-2.5">
+          {/* Fast Gate Mode Toggle */}
+          <button
+            type="button"
+            onClick={() => setFastMode((prev) => !prev)}
+            className={`flex items-center gap-2 rounded-xl px-3.5 py-2 text-xs font-extrabold transition-all border ${
+              fastMode
+                ? 'bg-emerald-500/15 border-emerald-500/40 text-emerald-800 dark:text-emerald-300 shadow-sm'
+                : 'bg-muted border-border text-muted-foreground'
+            }`}
+          >
+            <span className={`size-2 rounded-full ${fastMode ? 'bg-emerald-500 animate-pulse' : 'bg-muted-foreground'}`} />
+            {fastMode ? '⚡ Fast Gate Mode (Auto-Confirm ON)' : '🔍 Review Modal Mode'}
+          </button>
+
+          {activeEvent ? (
+            <div className="flex items-center gap-2 rounded-xl bg-emerald-500/10 px-3.5 py-2 border border-emerald-500/30">
+              <span className="size-2.5 rounded-full bg-emerald-500 animate-pulse" />
+              <span className="text-xs font-bold text-emerald-800 dark:text-emerald-300">Active: {activeEvent.name}</span>
+            </div>
+          ) : (
+            <div className="flex items-center gap-2 rounded-xl bg-amber-500/10 px-3.5 py-2 border border-amber-500/30">
+              <span className="size-2.5 rounded-full bg-amber-500" />
+              <span className="text-xs font-bold text-amber-800 dark:text-amber-300">No Active Event</span>
+            </div>
+          )}
+        </div>
       </div>
 
       <div className="grid gap-6 lg:grid-cols-[450px_1fr]">
@@ -3370,15 +3561,18 @@ function Scanner() {
           <section className="rounded-2xl border border-card-border bg-card p-5 shadow-sm">
             <div className="mb-3 flex items-center justify-between">
               <div className="flex items-center gap-2 font-bold text-xs">
-                <span className="text-amber-500">📷</span> Camera Scanner
+                <span className="text-amber-500">📷</span> Live Camera Scanner
               </div>
-              <span className="font-mono text-[9px] text-muted-foreground uppercase tracking-widest">LIVE SCANNER</span>
+              <span className="font-mono text-[9px] text-emerald-600 bg-emerald-500/10 px-2 py-0.5 rounded-full uppercase tracking-wider font-bold">
+                {detectionEngine === 'native' ? '🚀 Hardware GPU Engine' : '⚡ Fast 480p Engine'}
+              </span>
             </div>
 
             {/* Viewfinder Box */}
             <div className="relative aspect-[4/3] w-full overflow-hidden rounded-2xl bg-black shadow-inner flex items-center justify-center">
-              {/* Hidden canvas for jsQR pixel extraction */}
+              {/* Hidden canvas for fast jsQR downscale */}
               <canvas ref={canvasRef} className="hidden" />
+
               {isScanning ? (
                 <video ref={videoRef} className="h-full w-full object-cover" playsInline muted />
               ) : (
@@ -3398,16 +3592,31 @@ function Scanner() {
                 <div className="absolute bottom-0 left-0 size-8 border-b-4 border-l-4 border-emerald-500 rounded-bl-lg" />
                 <div className="absolute bottom-0 right-0 size-8 border-b-4 border-r-4 border-emerald-500 rounded-br-lg" />
               </div>
+
+              {/* Instant Verification HUD Banner overlay */}
+              {recentFlash && (
+                <div className="absolute inset-x-4 bottom-4 z-20 flex items-center gap-3 rounded-xl bg-emerald-600/95 p-3 text-white shadow-xl backdrop-blur-md animate-in fade-in zoom-in-95 duration-200">
+                  <div className="grid size-9 shrink-0 place-items-center rounded-lg bg-white text-emerald-700 font-extrabold">
+                    ✓
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="truncate text-xs font-black">{recentFlash.name}</div>
+                    <div className="font-mono text-[10px] opacity-90">{recentFlash.id} · {recentFlash.session}</div>
+                  </div>
+                  <span className="rounded-md bg-white/20 px-2 py-0.5 text-[10px] font-mono font-bold uppercase">
+                    {recentFlash.status}
+                  </span>
+                </div>
+              )}
             </div>
 
             {/* Launch / Stop Scanner Button */}
             <div className="mt-4 text-center">
-              <div className="mb-2 font-mono text-[9px] uppercase tracking-wider text-muted-foreground">SELECT CAMERA</div>
               {isScanning ? (
                 <button
                   type="button"
                   onClick={stopCamera}
-                  className="w-full rounded-xl bg-red-600 py-3 text-xs font-bold text-white shadow-md hover:bg-red-700"
+                  className="w-full rounded-xl bg-red-600 py-3 text-xs font-bold text-white shadow-md hover:bg-red-700 transition-colors"
                 >
                   Stop Scanner
                 </button>
@@ -3415,9 +3624,9 @@ function Scanner() {
                 <button
                   type="button"
                   onClick={startCamera}
-                  className="w-full inline-flex items-center justify-center gap-2 rounded-xl bg-amber-400 py-3 text-xs font-extrabold text-slate-900 shadow-md hover:bg-amber-500"
+                  className="w-full inline-flex items-center justify-center gap-2 rounded-xl bg-amber-400 py-3 text-xs font-extrabold text-slate-900 shadow-md hover:bg-amber-500 transition-colors"
                 >
-                  <span className="size-2 rounded-full bg-slate-900 animate-pulse" /> Launch Scanner
+                  <span className="size-2 rounded-full bg-slate-900 animate-pulse" /> Launch High-Speed Scanner
                 </button>
               )}
             </div>
@@ -3427,7 +3636,7 @@ function Scanner() {
               <div className="grid gap-1">
                 <div className="flex justify-between items-center">
                   <label className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">CSC Permanent QR Token</label>
-                  {activeEvent && <span className="text-[9px] font-mono text-emerald-700 font-bold">Auto-Loaded: {activeEvent.name}</span>}
+                  {activeEvent && <span className="text-[9px] font-mono text-emerald-700 dark:text-emerald-400 font-bold">Auto-Loaded: {activeEvent.name}</span>}
                 </div>
                 <input
                   data-testid="input-event-qr-token"
@@ -3452,10 +3661,22 @@ function Scanner() {
                       const s = val.substring(colonIdx + 1);
                       setToken(t);
                       setStudentIdInput(s);
-                      verify(t, s);
+                      if (fastMode) {
+                        handleInstantAutoConfirm(t, s);
+                      } else {
+                        verify(t, s);
+                      }
                     }
                   }}
-                  onKeyDown={e => e.key === 'Enter' && verify()}
+                  onKeyDown={e => {
+                    if (e.key === 'Enter') {
+                      if (fastMode) {
+                        handleInstantAutoConfirm(token, studentIdInput);
+                      } else {
+                        verify();
+                      }
+                    }
+                  }}
                   placeholder="Type or scan Student ID (e.g. 26DM0166)"
                   className="h-9 rounded-lg border border-input bg-background px-3 text-xs font-medium outline-none focus:border-primary"
                 />
@@ -3463,18 +3684,17 @@ function Scanner() {
 
               {/* Scanning status indicator (shows when camera is active) */}
               {isScanning ? (
-                <div className={`flex items-center justify-center gap-2 rounded-xl py-2.5 text-xs font-bold ${scan.isPending ? 'bg-amber-500/20 text-amber-700' : 'bg-emerald-500/10 text-emerald-700'}`}>
-                  <span className={`size-2 rounded-full ${scan.isPending ? 'bg-amber-500 animate-pulse' : 'bg-emerald-500 animate-pulse'}`} />
-                  {scan.isPending ? 'Verifying Student…' : 'Ready — Hold QR code up to camera'}
+                <div className={`flex items-center justify-center gap-2 rounded-xl py-2.5 text-xs font-bold ${confirm.isPending || scan.isPending ? 'bg-amber-500/20 text-amber-700 dark:text-amber-300' : 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-300'}`}>
+                  <span className={`size-2 rounded-full ${confirm.isPending || scan.isPending ? 'bg-amber-500 animate-pulse' : 'bg-emerald-500 animate-pulse'}`} />
+                  {confirm.isPending ? '⚡ Instant Recording…' : scan.isPending ? 'Verifying Student…' : fastMode ? '⚡ Fast Gate Active — Hold QR code up' : 'Ready — Hold QR code up'}
                 </div>
               ) : (
-                <Button data-testid="button-verify-student" disabled={!studentIdInput.trim() || scan.isPending} onClick={() => verify()} className="h-10 w-full mt-1">
-                  <Search className="size-4" /> {scan.isPending ? 'Verifying...' : 'Verify Student ID'}
+                <Button data-testid="button-verify-student" disabled={!studentIdInput.trim() || scan.isPending || confirm.isPending} onClick={() => fastMode ? handleInstantAutoConfirm(token, studentIdInput) : verify()} className="h-10 w-full mt-1">
+                  <Search className="size-4" /> {fastMode ? '⚡ Instant Record Attendance' : 'Verify Student ID'}
                 </Button>
               )}
 
               {message && <div className={`text-xs font-semibold mt-1 ${message.startsWith('✓') ? 'text-emerald-600' : 'text-red-500'}`}>{message}</div>}
-
 
               {/* Roster Quick-Click Shortcuts */}
               {students.length > 0 && (
@@ -3487,7 +3707,11 @@ function Scanner() {
                         type="button"
                         onClick={() => {
                           setStudentIdInput(s.studentId);
-                          verify(token, s.studentId);
+                          if (fastMode) {
+                            handleInstantAutoConfirm(token, s.studentId);
+                          } else {
+                            verify(token, s.studentId);
+                          }
                         }}
                         className="rounded-md bg-muted px-2 py-1 text-[10px] font-semibold text-foreground hover:bg-primary/20 hover:text-primary transition-colors"
                       >
@@ -3511,18 +3735,25 @@ function Scanner() {
             </div>
             <div className="rounded-2xl border border-card-border bg-card p-5 text-center shadow-sm">
               <div className="text-3xl font-black text-emerald-600">{presentScans}</div>
-              <div className="mt-1 text-xs font-semibold text-emerald-700">Present</div>
+              <div className="mt-1 text-xs font-semibold text-emerald-700 dark:text-emerald-400">Present</div>
             </div>
             <div className="rounded-2xl border border-card-border bg-card p-5 text-center shadow-sm">
               <div className="text-3xl font-black text-amber-500">{lateScans}</div>
-              <div className="mt-1 text-xs font-semibold text-amber-700">Late</div>
+              <div className="mt-1 text-xs font-semibold text-amber-700 dark:text-amber-400">Late</div>
             </div>
           </div>
 
           {/* Last Scan Result Card */}
           <section className="rounded-2xl border border-card-border bg-card p-6 shadow-sm flex-1 flex flex-col justify-between">
             <div>
-              <h2 className="text-sm font-extrabold text-foreground">Last Scan Result</h2>
+              <div className="flex items-center justify-between">
+                <h2 className="text-sm font-extrabold text-foreground">Last Scan Result</h2>
+                {lastScan && (
+                  <span className="rounded-full bg-emerald-500/10 px-2.5 py-0.5 text-[10px] font-bold text-emerald-700 dark:text-emerald-400 font-mono">
+                    Live Updated
+                  </span>
+                )}
+              </div>
 
               {lastScan ? (
                 <div className="mt-4 overflow-hidden rounded-xl border border-border bg-muted/20">
@@ -3545,7 +3776,7 @@ function Scanner() {
                     <p className="mt-0.5 font-mono text-[11px] font-bold text-muted-foreground">{lastScan.id}</p>
                     <div className="mt-3 flex flex-wrap items-center gap-1.5 text-[10px]">
                       <span className="rounded-md bg-muted px-2 py-0.5 font-semibold text-foreground">📅 {lastScan.session}</span>
-                      <span className="rounded-md bg-emerald-500/15 px-2 py-0.5 font-bold text-emerald-700">{lastScan.status}</span>
+                      <span className="rounded-md bg-emerald-500/15 px-2 py-0.5 font-bold text-emerald-700 dark:text-emerald-400">{lastScan.status}</span>
                       <span className="ml-auto text-muted-foreground font-mono">{lastScan.time}</span>
                     </div>
                   </div>
@@ -3562,7 +3793,7 @@ function Scanner() {
 
             <div className="mt-6 flex items-center gap-2 text-[11px] text-muted-foreground border-t border-border pt-4">
               <Volume2 className="size-4 text-muted-foreground" />
-              <span>Sound feedback enabled — beep on successful scan</span>
+              <span>Audio tone enabled — instant chime on successful scan</span>
             </div>
           </section>
         </div>

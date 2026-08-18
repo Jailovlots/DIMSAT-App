@@ -1,7 +1,7 @@
-import React from 'react';
-import { Feather } from '@expo/vector-icons';
+import React, { useState } from 'react';
+import { Feather, Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
-import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Image, Modal, Pressable, StyleSheet, Text, View } from 'react-native';
 import { Avatar, IconCircle, Screen, SectionTitle } from '@/components/AttendaUI';
 import { useAttendance } from '@/context/AttendanceContext';
 import { useColors } from '@/hooks/useColors';
@@ -11,6 +11,7 @@ export default function Dashboard() {
   const colors = useColors();
   const { account } = useAttendance();
   const { events, loading } = useStudentAttendance(account?.studentId);
+  const [showQrModal, setShowQrModal] = useState(false);
 
   if (!account) return null;
 
@@ -25,6 +26,9 @@ export default function Dashboard() {
   const hour = new Date().getHours();
   const greeting = hour < 12 ? 'Good morning,' : hour < 18 ? 'Good afternoon,' : 'Good evening,';
   const today = new Intl.DateTimeFormat('en-US', { weekday: 'long', month: 'long', day: 'numeric' }).format(new Date());
+
+  const qrData = `ZDSPGC_PERMANENT_QR_01:${account.studentId}`;
+  const qrImageUrl = `https://api.qrserver.com/v1/create-qr-code/?size=350x350&data=${encodeURIComponent(qrData)}&margin=12&format=png`;
 
   return (
     <Screen>
@@ -45,7 +49,7 @@ export default function Dashboard() {
         <Text style={[styles.live, { color: colors.success }]}>Live</Text>
       </View>
 
-      {/* Identity/Status card */}
+      {/* Identity/Status card with Show QR Pass Button */}
       {(() => {
         const isPrimaryAccentSame = colors.primary === colors.accent;
         const heroContrastColor = isPrimaryAccentSame ? colors.accentForeground : colors.accent;
@@ -61,9 +65,23 @@ export default function Dashboard() {
               </Text>
               <IconCircle icon="shield-checkmark" color={heroIconBg} />
             </View>
-            <Text style={[styles.heroCopy, { color: heroSubColor }]}>
-              {account.studentId} · {account.program}
-            </Text>
+            <View style={styles.heroBottomRow}>
+              <Text style={[styles.heroCopy, { color: heroSubColor }]}>
+                {account.studentId} · {account.program}
+              </Text>
+              <Pressable
+                onPress={() => setShowQrModal(true)}
+                style={({ pressed }) => [
+                  styles.qrHeroButton,
+                  { backgroundColor: colors.accent, opacity: pressed ? 0.8 : 1 },
+                ]}
+              >
+                <Ionicons name="qr-code-outline" size={16} color={colors.accentForeground || '#000'} />
+                <Text style={[styles.qrHeroButtonText, { color: colors.accentForeground || '#000' }]}>
+                  My QR Pass
+                </Text>
+              </Pressable>
+            </View>
           </View>
         );
       })()}
@@ -109,6 +127,14 @@ export default function Dashboard() {
       <SectionTitle eyebrow="Quick access" title="Stay in the loop" />
       <View style={styles.quickGrid}>
         <Pressable
+          onPress={() => setShowQrModal(true)}
+          style={({ pressed }) => [styles.quick, { backgroundColor: colors.secondary, opacity: pressed ? 0.7 : 1 }]}
+        >
+          <IconCircle icon="qr-code" />
+          <Text style={[styles.quickTitle, { color: colors.primary }]}>Student{'\n'}QR Pass</Text>
+          <Feather name="arrow-up-right" size={16} color={colors.success} />
+        </Pressable>
+        <Pressable
           onPress={() => router.push('/(tabs)/records')}
           style={({ pressed }) => [styles.quick, { backgroundColor: colors.secondary, opacity: pressed ? 0.7 : 1 }]}
         >
@@ -129,9 +155,57 @@ export default function Dashboard() {
       <View style={[styles.note, { backgroundColor: colors.muted }]}>
         <Feather name="info" size={17} color={colors.inkSoft} />
         <Text style={[styles.noteText, { color: colors.inkSoft }]}>
-          Attendance is updated live when you scan your QR code at an event.
+          Show your Student QR Pass to event officers for instant attendance verification.
         </Text>
       </View>
+
+      {/* STUDENT QR PASS MODAL */}
+      <Modal
+        visible={showQrModal}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowQrModal(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={[styles.modalBox, { backgroundColor: colors.card, borderColor: colors.border }]}>
+            <View style={styles.modalTop}>
+              <View>
+                <Text style={[styles.modalTitle, { color: colors.foreground }]}>Student QR Pass</Text>
+                <Text style={[styles.modalSub, { color: colors.mutedForeground }]}>Hold up to officer camera to scan</Text>
+              </View>
+              <Pressable onPress={() => setShowQrModal(false)} style={styles.closeBtn}>
+                <Feather name="x" size={20} color={colors.foreground} />
+              </Pressable>
+            </View>
+
+            {/* High-contrast QR Container */}
+            <View style={styles.qrContainer}>
+              <Image
+                source={{ uri: qrImageUrl }}
+                style={styles.qrImage}
+                resizeMode="contain"
+              />
+            </View>
+
+            <View style={styles.studentMeta}>
+              <Text style={[styles.studentMetaName, { color: colors.foreground }]}>{account.fullName}</Text>
+              <Text style={[styles.studentMetaId, { color: colors.primary }]}>
+                {account.studentId} · {account.program}
+              </Text>
+              <Text style={[styles.studentMetaYear, { color: colors.mutedForeground }]}>
+                Year {account.yearLevel} · ZDSPGC Dimataling
+              </Text>
+            </View>
+
+            <Pressable
+              onPress={() => setShowQrModal(false)}
+              style={[styles.doneBtn, { backgroundColor: colors.primary }]}
+            >
+              <Text style={[styles.doneBtnText, { color: colors.primaryForeground }]}>Done</Text>
+            </Pressable>
+          </View>
+        </View>
+      </Modal>
     </Screen>
   );
 }
@@ -149,7 +223,10 @@ const styles = StyleSheet.create({
   heroOver: { fontSize: 11, fontWeight: '800', letterSpacing: 1.7, marginBottom: 16 },
   heroRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   heroTitle: { fontSize: 25, lineHeight: 27, fontWeight: '800', letterSpacing: -0.7 },
-  heroCopy: { fontSize: 12, fontWeight: '600', marginTop: 22 },
+  heroBottomRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 20 },
+  heroCopy: { fontSize: 12, fontWeight: '600' },
+  qrHeroButton: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 12, paddingVertical: 6, borderRadius: 12 },
+  qrHeroButtonText: { fontSize: 12, fontWeight: '800' },
   link: { fontSize: 13, fontWeight: '800' },
   progressCard: { borderRadius: 21, borderWidth: 1, padding: 17, marginBottom: 30 },
   progressTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
@@ -160,9 +237,23 @@ const styles = StyleSheet.create({
   track: { height: 9, borderRadius: 8, marginTop: 18, overflow: 'hidden' },
   fill: { height: 9, borderRadius: 8 },
   progressHint: { fontSize: 12, lineHeight: 17, marginTop: 11 },
-  quickGrid: { flexDirection: 'row', gap: 12 },
-  quick: { flex: 1, borderRadius: 20, minHeight: 135, padding: 15, justifyContent: 'space-between' },
-  quickTitle: { fontSize: 17, lineHeight: 20, fontWeight: '800' },
+  quickGrid: { flexDirection: 'row', gap: 10 },
+  quick: { flex: 1, borderRadius: 18, minHeight: 130, padding: 13, justifyContent: 'space-between' },
+  quickTitle: { fontSize: 15, lineHeight: 18, fontWeight: '800' },
   note: { marginTop: 24, padding: 14, borderRadius: 16, flexDirection: 'row', gap: 10, alignItems: 'flex-start' },
   noteText: { flex: 1, fontSize: 12, lineHeight: 18, fontWeight: '600' },
+  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.65)', justifyContent: 'center', alignItems: 'center', padding: 20 },
+  modalBox: { width: '100%', maxWidth: 360, borderRadius: 24, borderWidth: 1, padding: 20, alignItems: 'center', shadowColor: '#000', shadowOffset: { width: 0, height: 10 }, shadowOpacity: 0.3, shadowRadius: 20, elevation: 12 },
+  modalTop: { width: '100%', flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 16 },
+  modalTitle: { fontSize: 18, fontWeight: '800' },
+  modalSub: { fontSize: 11, marginTop: 2 },
+  closeBtn: { padding: 4 },
+  qrContainer: { width: 220, height: 220, backgroundColor: '#ffffff', borderRadius: 20, padding: 12, justifyContent: 'center', alignItems: 'center', shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.1, shadowRadius: 8, elevation: 4 },
+  qrImage: { width: 196, height: 196 },
+  studentMeta: { width: '100%', alignItems: 'center', marginTop: 16, marginBottom: 18 },
+  studentMetaName: { fontSize: 16, fontWeight: '800', textAlign: 'center' },
+  studentMetaId: { fontSize: 13, fontWeight: '800', marginTop: 3 },
+  studentMetaYear: { fontSize: 11, marginTop: 2 },
+  doneBtn: { width: '100%', paddingVertical: 13, borderRadius: 14, alignItems: 'center', justifyContent: 'center' },
+  doneBtnText: { fontSize: 14, fontWeight: '800' },
 });

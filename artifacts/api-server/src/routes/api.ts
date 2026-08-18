@@ -1462,6 +1462,174 @@ router.post("/qr-codes/:id/deactivate", async (req, res, next) => {
   }
 });
 
+// ─── HIGH-SPEED SCAN & VERIFICATION CACHE & RESOLVERS ─────────────────────────
+interface ActiveContextCache {
+  event: typeof eventsTable.$inferSelect;
+  sessions: (typeof attendanceSessionsTable.$inferSelect)[];
+  assignedSessionId: number | null;
+  timestamp: number;
+}
+
+let activeContextCache: { [tokenKey: string]: ActiveContextCache } = {};
+let systemSettingsCache: { isManualMode: boolean; lateThresholdMinutes: number; timestamp: number } | null = null;
+
+export function invalidateActiveContextCache() {
+  activeContextCache = {};
+  systemSettingsCache = null;
+}
+
+async function getCachedSettings() {
+  const now = Date.now();
+  if (systemSettingsCache && now - systemSettingsCache.timestamp < 10000) {
+    return systemSettingsCache;
+  }
+  const settingsRows = await db.select().from(systemSettingsTable).limit(1);
+  const data = {
+    isManualMode: settingsRows[0]?.manualSessionMode ?? false,
+    lateThresholdMinutes: settingsRows[0]?.lateThresholdMinutes ?? 15,
+    timestamp: now,
+  };
+  systemSettingsCache = data;
+  return data;
+}
+
+async function getStudentFast(cleanStudentId: string) {
+  const upper = cleanStudentId.toUpperCase().trim();
+  // 1. Try exact match on unique index (instant B-tree lookup)
+  const exact = await db
+    .select()
+    .from(certifiedStudentsTable)
+    .where(eq(certifiedStudentsTable.studentId, upper))
+    .limit(1);
+  if (exact[0]) return exact[0];
+
+  // 2. Fallback to case-insensitive ilike
+  const fallback = await db
+    .select()
+    .from(certifiedStudentsTable)
+    .where(ilike(certifiedStudentsTable.studentId, cleanStudentId))
+    .limit(1);
+  return fallback[0] || null;
+}
+
+async function resolveActiveEventAndSessions(cleanToken: string): Promise<{
+  eventId: number | null;
+  event: typeof eventsTable.$inferSelect | null;
+  sessions: (typeof attendanceSessionsTable.$inferSelect)[];
+  assignedSessionId: number | null;
+}> {
+  const cacheKey = cleanToken || "_DEFAULT_";
+  const now = Date.now();
+  const cached = activeContextCache[cacheKey];
+
+  if (cached && now - cached.timestamp < 3000) {
+    return {
+      eventId: cached.event.id,
+      event: cached.event,
+      sessions: cached.sessions,
+      assignedSessionId: cached.assignedSessionId,
+    };
+  }
+
+  let eventId: number | null = null;
+  let assignedSessionId: number | null = null;
+
+  if (cleanToken) {
+    // Check Permanent QR codes first
+    const permQrRows = await db
+      .select()
+      .from(attendanceQrCodesTable)
+      .where(eq(attendanceQrCodesTable.secureToken, cleanToken))
+      .limit(1);
+
+    if (permQrRows[0]) {
+      const activeAssign = await db
+        .select()
+        .from(qrAssignmentsTable)
+        .innerJoin(eventsTable, eq(eventsTable.id, qrAssignmentsTable.eventId))
+        .where(
+          and(
+            eq(qrAssignmentsTable.qrCodeId, permQrRows[0].id),
+            eq(qrAssignmentsTable.status, "active"),
+            eq(eventsTable.status, "active"),
+          ),
+        )
+        .orderBy(desc(qrAssignmentsTable.activatedAt))
+        .limit(1);
+
+      if (activeAssign[0]) {
+        eventId = activeAssign[0].qr_assignments.eventId;
+        assignedSessionId = activeAssign[0].qr_assignments.sessionId;
+      }
+    }
+
+    // Check eventQrTokensTable
+    if (!eventId) {
+      const tokenRows = await db
+        .select()
+        .from(eventQrTokensTable)
+        .innerJoin(eventsTable, eq(eventsTable.id, eventQrTokensTable.eventId))
+        .where(and(eq(eventQrTokensTable.token, cleanToken), eq(eventsTable.status, "active")))
+        .limit(1);
+
+      if (tokenRows[0]) {
+        eventId = tokenRows[0].event_qr_tokens.eventId;
+      }
+    }
+  }
+
+  // Fallback: Check any active assignment for active events
+  if (!eventId) {
+    const activeAssignRows = await db
+      .select()
+      .from(qrAssignmentsTable)
+      .innerJoin(eventsTable, eq(eventsTable.id, qrAssignmentsTable.eventId))
+      .where(and(eq(qrAssignmentsTable.status, "active"), eq(eventsTable.status, "active")))
+      .orderBy(desc(qrAssignmentsTable.activatedAt))
+      .limit(1);
+
+    if (activeAssignRows[0]) {
+      eventId = activeAssignRows[0].qr_assignments.eventId;
+      assignedSessionId = activeAssignRows[0].qr_assignments.sessionId;
+    }
+  }
+
+  // Fallback: Find currently active event
+  if (!eventId) {
+    const activeEv = await db
+      .select()
+      .from(eventsTable)
+      .where(eq(eventsTable.status, "active"))
+      .orderBy(desc(eventsTable.createdAt))
+      .limit(1);
+
+    if (activeEv[0]) {
+      eventId = activeEv[0].id;
+    }
+  }
+
+  if (!eventId) {
+    return { eventId: null, event: null, sessions: [], assignedSessionId: null };
+  }
+
+  const [eventRows, sessionRows] = await Promise.all([
+    db.select().from(eventsTable).where(eq(eventsTable.id, eventId)).limit(1),
+    db.select().from(attendanceSessionsTable).where(eq(attendanceSessionsTable.eventId, eventId)),
+  ]);
+
+  const event = eventRows[0] || null;
+  if (event && event.status === "active") {
+    activeContextCache[cacheKey] = {
+      event,
+      sessions: sessionRows,
+      assignedSessionId,
+      timestamp: now,
+    };
+  }
+
+  return { eventId, event, sessions: sessionRows, assignedSessionId };
+}
+
 // ─── ATTENDANCE SCANNING & CONFIRMATION ────────────────────────────────────────
 
 router.get("/attendance", async (req, res, next) => {
@@ -1558,99 +1726,20 @@ router.post("/attendance/scan", async (req, res, next) => {
       return;
     }
 
-    // 1. Resolve Active Event only (Strict: Event MUST be active)
-    let eventId: number | null = null;
-    let assignedSessionId: number | null = null;
+    // 1. Concurrent resolution of Active Event/Sessions and Student Record
+    const [eventContext, student, settings] = await Promise.all([
+      resolveActiveEventAndSessions(cleanToken),
+      getStudentFast(cleanStudentId),
+      getCachedSettings(),
+    ]);
 
-    if (cleanToken) {
-      // Check Permanent QR codes first
-      const permQrRows = await db
-        .select()
-        .from(attendanceQrCodesTable)
-        .where(eq(attendanceQrCodesTable.secureToken, cleanToken))
-        .limit(1);
-
-      if (permQrRows[0]) {
-        const activeAssign = await db
-          .select()
-          .from(qrAssignmentsTable)
-          .innerJoin(eventsTable, eq(eventsTable.id, qrAssignmentsTable.eventId))
-          .where(
-            and(
-              eq(qrAssignmentsTable.qrCodeId, permQrRows[0].id),
-              eq(qrAssignmentsTable.status, "active"),
-              eq(eventsTable.status, "active"),
-            ),
-          )
-          .orderBy(desc(qrAssignmentsTable.activatedAt))
-          .limit(1);
-
-        if (activeAssign[0]) {
-          eventId = activeAssign[0].qr_assignments.eventId;
-          assignedSessionId = activeAssign[0].qr_assignments.sessionId;
-        }
-      }
-
-      // Check eventQrTokensTable for active event match
-      if (!eventId) {
-        const tokenRows = await db
-          .select()
-          .from(eventQrTokensTable)
-          .innerJoin(eventsTable, eq(eventsTable.id, eventQrTokensTable.eventId))
-          .where(and(eq(eventQrTokensTable.token, cleanToken), eq(eventsTable.status, "active")))
-          .limit(1);
-
-        if (tokenRows[0]) {
-          eventId = tokenRows[0].event_qr_tokens.eventId;
-        }
-      }
-    }
-
-    // Fallback: Check any active assignment for active events
-    if (!eventId) {
-      const activeAssignRows = await db
-        .select()
-        .from(qrAssignmentsTable)
-        .innerJoin(eventsTable, eq(eventsTable.id, qrAssignmentsTable.eventId))
-        .where(and(eq(qrAssignmentsTable.status, "active"), eq(eventsTable.status, "active")))
-        .orderBy(desc(qrAssignmentsTable.activatedAt))
-        .limit(1);
-
-      if (activeAssignRows[0]) {
-        eventId = activeAssignRows[0].qr_assignments.eventId;
-        assignedSessionId = activeAssignRows[0].qr_assignments.sessionId;
-      }
-    }
-
-    // Fallback: Find currently active event
-    if (!eventId) {
-      const activeEv = await db
-        .select()
-        .from(eventsTable)
-        .where(eq(eventsTable.status, "active"))
-        .orderBy(desc(eventsTable.createdAt))
-        .limit(1);
-
-      if (activeEv[0]) {
-        eventId = activeEv[0].id;
-      }
-    }
-
-    if (!eventId) {
+    if (!eventContext.eventId || !eventContext.event) {
       res.status(400).json({
         error: "No active event found. Please go to Event Management and activate an event before scanning attendance.",
       });
       return;
     }
 
-    // 2. Resolve Student in Certified Student Registry
-    const studentRows = await db
-      .select()
-      .from(certifiedStudentsTable)
-      .where(ilike(certifiedStudentsTable.studentId, cleanStudentId))
-      .limit(1);
-
-    const student = studentRows[0];
     if (!student) {
       res.status(404).json({
         error: `Student ID "${cleanStudentId}" is not in the certified student roster. Please import the student roster first.`,
@@ -1658,33 +1747,16 @@ router.post("/attendance/scan", async (req, res, next) => {
       return;
     }
 
-    // 3. Resolve Event
-    const eventRows = await db.select().from(eventsTable).where(eq(eventsTable.id, eventId)).limit(1);
-    const event = eventRows[0];
-    if (!event || event.status !== "active") {
-      res.status(400).json({
-        error: `Event "${event?.name || 'Selected Event'}" is not active (Status: "${event?.status || 'inactive'}"). Please activate it first.`,
-      });
-      return;
-    }
+    const { event, sessions, assignedSessionId } = eventContext;
 
-    // 4. Resolve Active Attendance Session according to mode and Manila time
-    const settingsRows = await db.select().from(systemSettingsTable).limit(1);
-    const isManualMode = settingsRows[0]?.manualSessionMode ?? false;
-    const lateThresholdMinutes = settingsRows[0]?.lateThresholdMinutes ?? 15;
-
-    const sessions = await db
-      .select()
-      .from(attendanceSessionsTable)
-      .where(eq(attendanceSessionsTable.eventId, eventId));
-
+    // 2. Resolve Active Attendance Session according to mode and Manila time
     let activeSession = null;
     if (assignedSessionId) {
       activeSession = sessions.find((s) => s.id === assignedSessionId) || null;
     }
 
     if (!activeSession) {
-      const resolved = resolveCurrentSession(sessions, isManualMode, lateThresholdMinutes);
+      const resolved = resolveCurrentSession(sessions, settings.isManualMode, settings.lateThresholdMinutes);
       if (!resolved.session) {
         res.status(400).json({ error: resolved.error || "No attendance session is currently open for scanning." });
         return;
@@ -1692,13 +1764,13 @@ router.post("/attendance/scan", async (req, res, next) => {
       activeSession = resolved.session;
     }
 
-    // 5. Duplicate Scan Guard for (eventId, sessionId, studentId)
+    // 3. Fast Duplicate Scan Guard for (eventId, sessionId, studentId)
     const existingRecord = await db
-      .select()
+      .select({ id: attendanceRecordsTable.id })
       .from(attendanceRecordsTable)
       .where(
         and(
-          eq(attendanceRecordsTable.eventId, eventId),
+          eq(attendanceRecordsTable.eventId, event.id),
           eq(attendanceRecordsTable.sessionId, activeSession.id),
           eq(attendanceRecordsTable.studentId, student.id),
         ),
@@ -1759,123 +1831,35 @@ router.post("/attendance/confirm", async (req, res, next) => {
       return;
     }
 
-    // 1. Resolve Active Event only
-    let eventId: number | null = null;
-    let assignedSessionId: number | null = null;
+    // 1. Concurrent resolution of Active Event/Sessions and Student Record
+    const [eventContext, student, settings] = await Promise.all([
+      resolveActiveEventAndSessions(cleanToken),
+      getStudentFast(cleanStudentId),
+      getCachedSettings(),
+    ]);
 
-    if (cleanToken) {
-      const permQrRows = await db
-        .select()
-        .from(attendanceQrCodesTable)
-        .where(eq(attendanceQrCodesTable.secureToken, cleanToken))
-        .limit(1);
-
-      if (permQrRows[0]) {
-        const activeAssign = await db
-          .select()
-          .from(qrAssignmentsTable)
-          .innerJoin(eventsTable, eq(eventsTable.id, qrAssignmentsTable.eventId))
-          .where(
-            and(
-              eq(qrAssignmentsTable.qrCodeId, permQrRows[0].id),
-              eq(qrAssignmentsTable.status, "active"),
-              eq(eventsTable.status, "active"),
-            ),
-          )
-          .orderBy(desc(qrAssignmentsTable.activatedAt))
-          .limit(1);
-
-        if (activeAssign[0]) {
-          eventId = activeAssign[0].qr_assignments.eventId;
-          assignedSessionId = activeAssign[0].qr_assignments.sessionId;
-        }
-      }
-
-      if (!eventId) {
-        const tokenRows = await db
-          .select()
-          .from(eventQrTokensTable)
-          .innerJoin(eventsTable, eq(eventsTable.id, eventQrTokensTable.eventId))
-          .where(and(eq(eventQrTokensTable.token, cleanToken), eq(eventsTable.status, "active")))
-          .limit(1);
-
-        if (tokenRows[0]) {
-          eventId = tokenRows[0].event_qr_tokens.eventId;
-        }
-      }
-    }
-
-    if (!eventId) {
-      const activeAssignRows = await db
-        .select()
-        .from(qrAssignmentsTable)
-        .innerJoin(eventsTable, eq(eventsTable.id, qrAssignmentsTable.eventId))
-        .where(and(eq(qrAssignmentsTable.status, "active"), eq(eventsTable.status, "active")))
-        .orderBy(desc(qrAssignmentsTable.activatedAt))
-        .limit(1);
-
-      if (activeAssignRows[0]) {
-        eventId = activeAssignRows[0].qr_assignments.eventId;
-        assignedSessionId = activeAssignRows[0].qr_assignments.sessionId;
-      }
-    }
-
-    if (!eventId) {
-      const activeEv = await db
-        .select()
-        .from(eventsTable)
-        .where(eq(eventsTable.status, "active"))
-        .orderBy(desc(eventsTable.createdAt))
-        .limit(1);
-
-      if (activeEv[0]) {
-        eventId = activeEv[0].id;
-      }
-    }
-
-    if (!eventId) {
+    if (!eventContext.eventId || !eventContext.event) {
       res.status(400).json({
         error: "No active event found. Please activate an event in Event Management before scanning.",
       });
       return;
     }
 
-    const studentRows = await db
-      .select()
-      .from(certifiedStudentsTable)
-      .where(ilike(certifiedStudentsTable.studentId, cleanStudentId))
-      .limit(1);
-
-    const student = studentRows[0];
     if (!student) {
       res.status(404).json({ error: `Student ID "${cleanStudentId}" not found in certified registry.` });
       return;
     }
 
-    const eventRows = await db.select().from(eventsTable).where(eq(eventsTable.id, eventId)).limit(1);
-    const event = eventRows[0];
-    if (!event || event.status !== "active") {
-      res.status(400).json({ error: `Event "${event?.name || 'Selected Event'}" is not currently active.` });
-      return;
-    }
+    const { event, sessions, assignedSessionId } = eventContext;
 
-    // Resolve active session
-    const settingsRows = await db.select().from(systemSettingsTable).limit(1);
-    const isManualMode = settingsRows[0]?.manualSessionMode ?? false;
-    const lateThresholdMinutes = settingsRows[0]?.lateThresholdMinutes ?? 15;
-
-    const sessionRows = await db
-      .select()
-      .from(attendanceSessionsTable)
-      .where(eq(attendanceSessionsTable.eventId, eventId));
-
+    // 2. Resolve active session
     let session = null;
     if (assignedSessionId) {
-      session = sessionRows.find((s) => s.id === assignedSessionId) || null;
+      session = sessions.find((s) => s.id === assignedSessionId) || null;
     }
 
     if (!session) {
-      const resolved = resolveCurrentSession(sessionRows, isManualMode, lateThresholdMinutes);
+      const resolved = resolveCurrentSession(sessions, settings.isManualMode, settings.lateThresholdMinutes);
       if (!resolved.session) {
         res.status(400).json({ error: resolved.error || "No attendance session is open right now." });
         return;
@@ -1883,55 +1867,22 @@ router.post("/attendance/confirm", async (req, res, next) => {
       session = resolved.session;
     }
 
-    // Determine status (present vs late based on lateThresholdMinutes and Manila time)
+    // 3. Determine status (present vs late based on lateThresholdMinutes and Manila time)
     let scanStatus = "present";
     const { currentMinutes } = getManilaTime();
 
     if (session.startTime) {
       const sessionStartMinutes = parseMinutes(session.startTime);
-      if (currentMinutes > sessionStartMinutes + lateThresholdMinutes) {
+      if (currentMinutes > sessionStartMinutes + settings.lateThresholdMinutes) {
         scanStatus = "late";
       }
     }
 
-    // Auto-record 'absent' for earlier enabled sessions that passed without a scan
-    const earlierSessions = sessionRows.filter((s) => {
-      if (!s.enabled || s.id === session.id) return false;
-      const sessionEndMins = parseMinutes(s.endTime);
-      return currentMinutes > sessionEndMins + 15;
-    });
-
-    for (const earlier of earlierSessions) {
-      const rec = await db
-        .select()
-        .from(attendanceRecordsTable)
-        .where(
-          and(
-            eq(attendanceRecordsTable.eventId, eventId),
-            eq(attendanceRecordsTable.sessionId, earlier.id),
-            eq(attendanceRecordsTable.studentId, student.id),
-          ),
-        )
-        .limit(1);
-
-      if (!rec[0]) {
-        await db
-          .insert(attendanceRecordsTable)
-          .values({
-            eventId,
-            sessionId: earlier.id,
-            studentId: student.id,
-            status: "absent",
-          })
-          .onConflictDoNothing();
-      }
-    }
-
-    // Insert record with unique constraint protection
+    // 4. Insert record with unique constraint protection
     const [record] = await db
       .insert(attendanceRecordsTable)
       .values({
-        eventId,
+        eventId: event.id,
         sessionId: session.id,
         studentId: student.id,
         status: scanStatus,
@@ -1939,23 +1890,26 @@ router.post("/attendance/confirm", async (req, res, next) => {
       .onConflictDoNothing()
       .returning();
 
-    await db.insert(auditLogsTable).values({
+    // Async audit log non-blocking for response speed
+    db.insert(auditLogsTable).values({
       action: "RECORD_ATTENDANCE",
       entityType: "attendance_record",
       entityId: String(record?.id ?? 0),
       details: `Confirmed attendance for ${student.fullName} (${student.studentId}) in ${session.name}`,
-    });
+    }).catch((err) => console.error("Audit log record error:", err));
 
     res.status(201).json({
       id: record?.id ?? 0,
       studentName: student.fullName,
       studentId: student.studentId,
       yearLevel: student.yearLevel,
+      program: student.program,
+      profilePhoto: sanitizeProfilePhoto(student.profilePhoto),
       eventName: event.name,
       sessionName: session.name,
       scannedAt: (record?.scannedAt ?? new Date()).toISOString(),
       officerName: "Officer 01",
-      status: record?.status ?? "present",
+      status: record?.status ?? scanStatus,
     });
   } catch (err) {
     next(err);
@@ -2226,6 +2180,7 @@ router.patch("/settings", async (req, res, next) => {
       updatedRow = created;
     }
 
+    invalidateActiveContextCache();
     res.json(formatSettings(updatedRow));
   } catch (err) {
     next(err);
