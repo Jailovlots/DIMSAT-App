@@ -491,6 +491,56 @@ router.post("/student/photo", async (req, res, next) => {
   }
 });
 
+router.post("/students/:id/reset-password", async (req, res, next) => {
+  try {
+    const id = Number(req.params["id"]);
+    if (isNaN(id)) {
+      res.status(400).json({ error: "Invalid student ID." });
+      return;
+    }
+
+    const { newPassword } = req.body as { newPassword?: string };
+    if (!newPassword || !newPassword.trim()) {
+      res.status(400).json({ error: "New password is required." });
+      return;
+    }
+
+    const rows = await db
+      .select()
+      .from(certifiedStudentsTable)
+      .where(eq(certifiedStudentsTable.id, id))
+      .limit(1);
+
+    const student = rows[0];
+    if (!student) {
+      res.status(404).json({ error: "Student not found." });
+      return;
+    }
+
+    if (!student.isRegistered) {
+      res.status(400).json({ error: "Student has not registered an account yet. No password to reset." });
+      return;
+    }
+
+    const [updated] = await db
+      .update(certifiedStudentsTable)
+      .set({ passwordHash: newPassword.trim(), updatedAt: new Date() })
+      .where(eq(certifiedStudentsTable.id, id))
+      .returning();
+
+    await db.insert(auditLogsTable).values({
+      action: "RESET_STUDENT_PASSWORD",
+      entityType: "student",
+      entityId: updated.studentId,
+      details: `Admin reset password for student ${updated.fullName} (${updated.studentId})`,
+    });
+
+    res.json({ message: "Password reset successfully.", studentId: updated.studentId });
+  } catch (err) {
+    next(err);
+  }
+});
+
 router.post("/students/:id/reset-photo-count", async (req, res, next) => {
   try {
     const id = Number(req.params["id"]);

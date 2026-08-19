@@ -1068,12 +1068,21 @@ function Students() {
 }
 
 function EditStudentDialog({ student, onClose, onSuccess }: { student: Student; onClose: () => void; onSuccess: () => void }) {
+  const { toast } = useToast();
   const [fullName, setFullName] = useState(student.fullName);
   const [yearLevel, setYearLevel] = useState(String(student.yearLevel ?? '1'));
   const [program, setProgram] = useState(student.program ?? 'BSIS');
   const [sex, setSex] = useState(student.sex ?? 'Female');
   const [profilePhoto, setProfilePhoto] = useState<string | null>(student.profilePhoto ?? null);
   const [isSaving, setIsSaving] = useState(false);
+
+  // Password reset state
+  const [showPasswordSection, setShowPasswordSection] = useState(false);
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [isResettingPwd, setIsResettingPwd] = useState(false);
+  const [showNewPwd, setShowNewPwd] = useState(false);
+  const [showConfirmPwd, setShowConfirmPwd] = useState(false);
 
   const handlePhotoSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -1109,9 +1118,52 @@ function EditStudentDialog({ student, onClose, onSuccess }: { student: Student; 
     }
   };
 
+  const handleResetPassword = async () => {
+    if (!newPassword.trim()) {
+      toast({ title: 'Password required', description: 'Please enter a new password.', variant: 'destructive' });
+      return;
+    }
+    if (newPassword.length < 6) {
+      toast({ title: 'Password too short', description: 'Password must be at least 6 characters.', variant: 'destructive' });
+      return;
+    }
+    if (newPassword !== confirmPassword) {
+      toast({ title: 'Passwords do not match', description: 'New password and confirmation must be identical.', variant: 'destructive' });
+      return;
+    }
+    setIsResettingPwd(true);
+    try {
+      const res = await fetch(`/api/students/${student.id}/reset-password`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ newPassword: newPassword.trim() }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (res.ok) {
+        toast({
+          title: '✅ Password Reset Successful',
+          description: `New password set for ${student.fullName}. Share it with the student securely.`,
+        });
+        setNewPassword('');
+        setConfirmPassword('');
+        setShowPasswordSection(false);
+      } else {
+        toast({
+          title: 'Reset Failed',
+          description: (body as { error?: string }).error || 'Could not reset password.',
+          variant: 'destructive',
+        });
+      }
+    } catch {
+      toast({ title: 'Network Error', description: 'Could not reach the server.', variant: 'destructive' });
+    } finally {
+      setIsResettingPwd(false);
+    }
+  };
+
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-sidebar/50 p-4 backdrop-blur-sm">
-      <div className="w-full max-w-md rounded-2xl border border-card-border bg-card p-6 shadow-2xl">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-sidebar/50 p-4 backdrop-blur-sm overflow-y-auto">
+      <div className="w-full max-w-md rounded-2xl border border-card-border bg-card p-6 shadow-2xl my-auto">
         <div className="flex justify-between items-center border-b border-border pb-3 mb-4">
           <div>
             <div className="font-mono text-[10px] uppercase tracking-wider text-primary font-bold">Manage Roster Entry</div>
@@ -1188,6 +1240,101 @@ function EditStudentDialog({ student, onClose, onSuccess }: { student: Student; 
               <option value="Female">Female</option>
               <option value="Male">Male</option>
             </select>
+          </div>
+
+          {/* ── Reset App Password Section ── */}
+          <div className="rounded-xl border border-amber-200/60 bg-amber-50/50 dark:border-amber-800/40 dark:bg-amber-900/10 overflow-hidden">
+            <button
+              type="button"
+              onClick={() => { setShowPasswordSection(v => !v); setNewPassword(''); setConfirmPassword(''); }}
+              className="flex w-full items-center justify-between px-4 py-3 text-left"
+            >
+              <div className="flex items-center gap-2.5">
+                <div className="grid size-7 place-items-center rounded-lg bg-amber-500/15">
+                  <ShieldCheck className="size-3.5 text-amber-600 dark:text-amber-400" />
+                </div>
+                <div>
+                  <div className="text-xs font-extrabold text-amber-800 dark:text-amber-300">Reset Student App Password</div>
+                  <div className="text-[10px] text-amber-700/70 dark:text-amber-400/70">Set a new login password for the student mobile app</div>
+                </div>
+              </div>
+              <ChevronDown className={`size-4 text-amber-600 dark:text-amber-400 transition-transform duration-200 ${showPasswordSection ? 'rotate-180' : ''}`} />
+            </button>
+
+            {showPasswordSection && (
+              <div className="border-t border-amber-200/60 dark:border-amber-800/40 px-4 pb-4 pt-3 grid gap-3">
+                <div className="rounded-lg bg-amber-100/80 dark:bg-amber-900/30 px-3 py-2 text-[10px] text-amber-800 dark:text-amber-300 font-medium leading-4">
+                  ⚠️ The student will need to use this new password to log in to the <strong>ZDSPGC Student App</strong>. Share it with them securely.
+                </div>
+
+                {/* New Password */}
+                <div className="grid gap-1.5">
+                  <span className="text-[11px] font-bold text-muted-foreground">New Password</span>
+                  <div className="relative flex items-center">
+                    <input
+                      data-testid="input-student-new-password"
+                      type={showNewPwd ? 'text' : 'password'}
+                      value={newPassword}
+                      onChange={e => setNewPassword(e.target.value)}
+                      placeholder="Min. 6 characters"
+                      className="h-10 w-full rounded-lg border border-input bg-background px-3 pr-10 text-sm font-medium text-foreground outline-none transition-colors focus:border-primary focus:ring-2 focus:ring-primary/15"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowNewPwd(v => !v)}
+                      className="absolute right-3 text-muted-foreground hover:text-foreground transition-colors"
+                    >
+                      {showNewPwd ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
+                    </button>
+                  </div>
+                </div>
+
+                {/* Confirm Password */}
+                <div className="grid gap-1.5">
+                  <span className="text-[11px] font-bold text-muted-foreground">Confirm New Password</span>
+                  <div className="relative flex items-center">
+                    <input
+                      data-testid="input-student-confirm-password"
+                      type={showConfirmPwd ? 'text' : 'password'}
+                      value={confirmPassword}
+                      onChange={e => setConfirmPassword(e.target.value)}
+                      placeholder="Re-enter new password"
+                      className={`h-10 w-full rounded-lg border bg-background px-3 pr-10 text-sm font-medium text-foreground outline-none transition-colors focus:ring-2 focus:ring-primary/15 ${
+                        confirmPassword && confirmPassword !== newPassword
+                          ? 'border-red-400 focus:border-red-400 focus:ring-red-400/15'
+                          : confirmPassword && confirmPassword === newPassword
+                          ? 'border-emerald-400 focus:border-emerald-400 focus:ring-emerald-400/15'
+                          : 'border-input focus:border-primary'
+                      }`}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowConfirmPwd(v => !v)}
+                      className="absolute right-3 text-muted-foreground hover:text-foreground transition-colors"
+                    >
+                      {showConfirmPwd ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
+                    </button>
+                  </div>
+                  {confirmPassword && confirmPassword !== newPassword && (
+                    <p className="text-[10px] text-red-500 font-semibold">Passwords do not match</p>
+                  )}
+                  {confirmPassword && confirmPassword === newPassword && (
+                    <p className="text-[10px] text-emerald-600 font-semibold">✓ Passwords match</p>
+                  )}
+                </div>
+
+                <Button
+                  data-testid="button-reset-student-password"
+                  variant="soft"
+                  disabled={!newPassword || !confirmPassword || newPassword !== confirmPassword || isResettingPwd}
+                  onClick={handleResetPassword}
+                  className="bg-amber-500/15 text-amber-800 hover:bg-amber-500/25 dark:text-amber-300"
+                >
+                  <ShieldCheck className="size-3.5" />
+                  {isResettingPwd ? 'Resetting Password…' : 'Confirm Password Reset'}
+                </Button>
+              </div>
+            )}
           </div>
         </div>
 
@@ -2891,9 +3038,8 @@ function Attendance() {
                     </td>
                     <td className="py-1.5 px-2 text-slate-800">{r.officerName}</td>
                     <td className="py-1.5 px-2 text-center">
-                      <span className={`font-mono text-[7.5px] font-bold uppercase px-1.5 py-0.5 rounded ${
-                        r.status === 'present' ? 'text-emerald-800 bg-emerald-100' : 'text-rose-800 bg-rose-100'
-                      }`}>
+                      <span className={`font-mono text-[7.5px] font-bold uppercase px-1.5 py-0.5 rounded ${r.status === 'present' ? 'text-emerald-800 bg-emerald-100' : 'text-rose-800 bg-rose-100'
+                        }`}>
                         {r.status}
                       </span>
                     </td>
@@ -3108,7 +3254,7 @@ function Officers() {
                       <td className="px-5 py-4">
                         {isSuperAdmin ? (
                           <span className="inline-flex items-center gap-1 rounded-full border border-amber-300 bg-amber-50 px-2.5 py-0.5 font-mono text-[10px] font-extrabold uppercase text-amber-700">
-                            <span className="size-1.5 rounded-full bg-amber-500" /> SUPER ADMIN
+                            <span className="size-1.5 rounded-full bg-amber-500" /> MAIN ADMIN
                           </span>
                         ) : (
                           <span className="inline-flex items-center gap-1.5 rounded-full border border-slate-200 bg-slate-100 px-2.5 py-0.5 font-mono text-[10px] font-bold uppercase text-slate-600">
@@ -3186,7 +3332,7 @@ function Officers() {
                   className="h-10 w-full rounded-lg border border-input bg-background px-3 text-xs font-bold text-slate-900 outline-none focus:border-primary"
                 >
                   <option value="officer">Officer (Dashboard, Scanner, Events & Attendance only)</option>
-                  <option value="super_admin">Super Admin (Full System Access)</option>
+                  <option value="super_admin">MAIN Admin (Full System Access)</option>
                 </select>
               </div>
 
@@ -3261,8 +3407,8 @@ function SettingsPage() {
               <div><h2 className="text-sm font-extrabold">School Identity &amp; Campus Defaults</h2><p className="text-xs text-muted-foreground">Shown across printable reports, console headers, and system records.</p></div>
             </div>
             <div className="grid gap-4 sm:grid-cols-2">
-              <Field label="School Name" value={school || s?.schoolName || 'ZDSPGC – Dimataling Campus'} onChange={setSchool} />
-              <Field label="Campus Name" value={campus || s?.campusName || 'Dimataling Campus'} onChange={setCampus} />
+              <Field label=" Institution" value={school || s?.schoolName || 'ZDSPGC – Dimataling Campus'} onChange={setSchool} />
+              <Field label="Campus " value={campus || s?.campusName || 'Dimataling Campus'} onChange={setCampus} />
             </div>
           </section>
 
@@ -3314,7 +3460,7 @@ function Scanner() {
   const [candidate, setCandidate] = useState<Awaited<ReturnType<typeof useScanAttendance>>['data']>(undefined);
   const [showModal, setShowModal] = useState(false);
   const [message, setMessage] = useState('');
-  const [lastScan, setLastScan] = useState<{ name: string; id: string; session: string; status: string; time: string; photo: string | null }| null>(null);
+  const [lastScan, setLastScan] = useState<{ name: string; id: string; session: string; status: string; time: string; photo: string | null } | null>(null);
 
   const [isScanning, setIsScanning] = useState(false);
   const [detectionEngine, setDetectionEngine] = useState<'native' | 'canvas'>('native');
