@@ -597,17 +597,12 @@ function SignIn() {
 }
 
 function StudentQrPassModal({ user, onClose }: { user: StaffUser; onClose: () => void }) {
-  const qrData = JSON.stringify({
-    studentId: user.officerId || '2026-00892',
-    name: user.fullName,
-    role: user.role,
-    verified: true,
-    issuedAt: new Date().toISOString().split('T')[0]
-  });
+  const studentId = user.officerId || '2026-00892';
+  const qrData = `ZDSPGC_PERMANENT_QR_01:${studentId}`;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/65 backdrop-blur-sm p-4 animate-in fade-in duration-200">
-      <div className="relative w-full max-w-sm overflow-hidden rounded-2xl border border-primary/30 bg-card p-6 shadow-2xl rise-in">
+      <div className="relative w-full max-w-sm overflow-hidden rounded-2xl border border-primary/30 bg-card p-5 shadow-2xl rise-in">
         <button
           onClick={onClose}
           className="absolute right-4 top-4 rounded-full p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
@@ -617,44 +612,64 @@ function StudentQrPassModal({ user, onClose }: { user: StaffUser; onClose: () =>
         </button>
 
         {/* Card Header with School Logo */}
-        <div className="flex items-center gap-3 border-b border-border pb-4">
-          <div className="size-10 rounded-full bg-white p-0.5 shadow border border-border flex items-center justify-center shrink-0">
+        <div className="flex items-center gap-3 border-b border-border pb-3">
+          <div className="size-9 rounded-full bg-white p-0.5 shadow border border-border flex items-center justify-center shrink-0">
             <img src="/zdspgc-logo.png" alt="ZDSPGC Logo" className="size-full object-contain rounded-full" />
           </div>
           <div>
-            <div className="text-[11px] font-mono font-bold text-primary uppercase tracking-wider">ZDSPGC Dimataling</div>
-            <div className="text-sm font-black text-foreground">Digital Attendance Pass</div>
+            <div className="text-[10px] font-mono font-bold text-primary uppercase tracking-wider">ZDSPGC Dimataling</div>
+            <div className="text-sm font-black text-foreground">Semester Attendance Pass</div>
           </div>
         </div>
 
-        {/* QR Code Container */}
-        <div className="my-5 flex flex-col items-center justify-center rounded-xl bg-white p-5 shadow-inner border border-slate-200">
-          <QRCodeSVG value={qrData} size={180} level="H" />
-          <div className="mt-3 text-center">
-            <div className="font-mono text-[11px] font-extrabold text-slate-800 tracking-widest">{user.officerId || '2026-00892'}</div>
-            <div className="text-[10px] font-semibold text-slate-500">Official Encrypted QR Token</div>
+        {/* Official Semester Pass Card Replica */}
+        <div className="my-4 rounded-xl border-2 border-slate-900 bg-white p-3.5 shadow-md text-slate-900 flex flex-col justify-between gap-3">
+          <div className="flex items-center justify-between border-b border-slate-900 pb-1.5">
+            <div>
+              <div className="font-mono text-[7.5px] font-black uppercase tracking-widest text-emerald-700">ZDSPGC – DIMATALING CAMPUS</div>
+              <div className="text-[10px] font-black tracking-tight uppercase text-slate-900">DIMSAT SID</div>
+            </div>
+            <span className="rounded bg-slate-900 px-1.5 py-0.5 font-mono text-[7.5px] font-black text-white uppercase tracking-wider">SEMESTER PASS</span>
+          </div>
+
+          <div className="flex items-center justify-between gap-2">
+            <div className="min-w-0 flex-1">
+              <div className="font-mono text-[6.5px] font-bold text-slate-400 uppercase">STUDENT NAME</div>
+              <h3 className="text-[11px] font-black uppercase tracking-tight text-slate-900 truncate leading-tight">{user.fullName}</h3>
+
+              <div className="mt-1.5 grid grid-cols-2 gap-x-2 gap-y-1 font-mono text-[7.5px]">
+                <div>
+                  <span className="text-slate-400">ID:</span> <strong className="text-slate-900">{studentId}</strong>
+                </div>
+                <div>
+                  <span className="text-slate-400">ROLE:</span> <strong className="text-slate-900 capitalize">{user.role.replace('_', ' ')}</strong>
+                </div>
+                <div>
+                  <span className="text-slate-400">PROG:</span> <strong className="text-slate-900">BSIS</strong>
+                </div>
+                <div>
+                  <span className="text-slate-400">STATUS:</span> <strong className="text-emerald-700">ACTIVE</strong>
+                </div>
+              </div>
+            </div>
+
+            <div className="rounded-lg border-2 border-slate-900 bg-white p-1 shrink-0 shadow-sm">
+              <QRCodeSVG value={qrData} size={84} level="M" />
+            </div>
+          </div>
+
+          <div className="border-t border-slate-200 pt-1 flex items-center justify-between font-mono text-[6.5px] text-slate-500 uppercase tracking-wider">
+            <span>OFFICIAL STUDENT ATTENDANCE PASS</span>
+            <span>REUSABLE ALL SEMESTER</span>
           </div>
         </div>
 
-        {/* Student Info Details */}
-        <div className="rounded-xl bg-muted/60 p-3.5 space-y-1.5 text-xs">
-          <div className="flex justify-between">
-            <span className="text-muted-foreground font-medium">Name:</span>
-            <span className="font-bold text-foreground">{user.fullName}</span>
-          </div>
-          <div className="flex justify-between">
-            <span className="text-muted-foreground font-medium">Role / Program:</span>
-            <span className="font-bold text-foreground capitalize">{user.role.replace('_', ' ')} / BSIS</span>
-          </div>
-          <div className="flex justify-between">
-            <span className="text-muted-foreground font-medium">Campus Status:</span>
-            <span className="inline-flex items-center gap-1 font-mono text-[10px] font-bold text-emerald-600 bg-emerald-500/15 px-1.5 py-0.5 rounded">
-              <CheckCircle2 className="size-3" /> VERIFIED
-            </span>
-          </div>
+        <div className="rounded-xl bg-emerald-500/10 border border-emerald-500/20 p-2.5 flex items-center gap-2 text-xs text-emerald-700 dark:text-emerald-400">
+          <CheckCircle2 className="size-4 shrink-0" />
+          <span className="text-[11px] font-medium leading-tight">Permanent pass encoded. Accepted on all event scanners if physical card is misplaced.</span>
         </div>
 
-        <div className="mt-5 flex gap-2">
+        <div className="mt-4 flex gap-2">
           <Button variant="outline" className="w-full text-xs" onClick={onClose}>
             Close Pass
           </Button>

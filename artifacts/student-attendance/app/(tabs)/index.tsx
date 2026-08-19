@@ -159,7 +159,7 @@ export default function Dashboard() {
         </Text>
       </View>
 
-      {/* STUDENT QR PASS MODAL */}
+      {/* STUDENT QR PASS MODAL — MATCHES OFFICIAL SEMESTER PASS */}
       <Modal
         visible={showQrModal}
         transparent
@@ -169,31 +169,85 @@ export default function Dashboard() {
         <View style={styles.modalOverlay}>
           <View style={[styles.modalBox, { backgroundColor: colors.card, borderColor: colors.border }]}>
             <View style={styles.modalTop}>
-              <View>
-                <Text style={[styles.modalTitle, { color: colors.foreground }]}>Student QR Pass</Text>
-                <Text style={[styles.modalSub, { color: colors.mutedForeground }]}>Hold up to officer camera to scan</Text>
+              <View style={styles.modalHeaderLeft}>
+                <View style={styles.badgeRow}>
+                  <Ionicons name="shield-checkmark" size={14} color={colors.success} />
+                  <Text style={[styles.modalSub, { color: colors.success }]}>OFFICIAL DIGITAL PASS</Text>
+                </View>
+                <Text style={[styles.modalTitle, { color: colors.foreground }]}>Semester QR Pass</Text>
               </View>
               <Pressable onPress={() => setShowQrModal(false)} style={styles.closeBtn}>
                 <Feather name="x" size={20} color={colors.foreground} />
               </Pressable>
             </View>
 
-            {/* High-contrast QR Container */}
-            <View style={styles.qrContainer}>
-              <Image
-                source={{ uri: qrImageUrl }}
-                style={styles.qrImage}
-                resizeMode="contain"
-              />
+            {/* Official Semester Pass Card Replica */}
+            <View style={styles.semesterCard}>
+              {/* Card Header Ribbon */}
+              <View style={styles.cardHeaderRibbon}>
+                <View>
+                  <Text style={styles.cardSchoolName}>ZDSPGC – DIMATALING CAMPUS</Text>
+                  <Text style={styles.cardAppName}>DIMSAT SID</Text>
+                </View>
+                <View style={styles.semesterBadge}>
+                  <Text style={styles.semesterBadgeText}>SEMESTER PASS</Text>
+                </View>
+              </View>
+
+              {/* Card Body */}
+              <View style={styles.cardBody}>
+                <View style={styles.cardStudentInfo}>
+                  <Text style={styles.cardFieldLabel}>STUDENT NAME</Text>
+                  <Text style={styles.cardStudentName} numberOfLines={2}>
+                    {account.fullName}
+                  </Text>
+
+                  <View style={styles.cardMetaGrid}>
+                    <View style={styles.cardMetaCol}>
+                      <Text style={styles.cardMetaItem}>
+                        <Text style={styles.cardMetaKey}>ID: </Text>
+                        <Text style={styles.cardMetaVal}>{account.studentId}</Text>
+                      </Text>
+                      <Text style={styles.cardMetaItem}>
+                        <Text style={styles.cardMetaKey}>PROG: </Text>
+                        <Text style={styles.cardMetaVal}>{account.program || 'BSIS'}</Text>
+                      </Text>
+                    </View>
+                    <View style={styles.cardMetaCol}>
+                      <Text style={styles.cardMetaItem}>
+                        <Text style={styles.cardMetaKey}>YR: </Text>
+                        <Text style={styles.cardMetaVal}>Lvl {account.yearLevel || '1'}</Text>
+                      </Text>
+                      <Text style={styles.cardMetaItem}>
+                        <Text style={styles.cardMetaKey}>SEX: </Text>
+                        <Text style={styles.cardMetaVal}>{account.sex || 'Female'}</Text>
+                      </Text>
+                    </View>
+                  </View>
+                </View>
+
+                {/* High-contrast QR Container */}
+                <View style={styles.cardQrContainer}>
+                  <Image
+                    source={{ uri: qrImageUrl }}
+                    style={styles.cardQrImage}
+                    resizeMode="contain"
+                  />
+                </View>
+              </View>
+
+              {/* Card Footer */}
+              <View style={styles.cardFooter}>
+                <Text style={styles.cardFooterText}>OFFICIAL STUDENT ATTENDANCE PASS</Text>
+                <Text style={styles.cardFooterText}>REUSABLE ALL SEMESTER</Text>
+              </View>
             </View>
 
-            <View style={styles.studentMeta}>
-              <Text style={[styles.studentMetaName, { color: colors.foreground }]}>{account.fullName}</Text>
-              <Text style={[styles.studentMetaId, { color: colors.primary }]}>
-                {account.studentId} · {account.program}
-              </Text>
-              <Text style={[styles.studentMetaYear, { color: colors.mutedForeground }]}>
-                Year {account.yearLevel} · ZDSPGC Dimataling
+            {/* Permanent Pass Reassurance Banner */}
+            <View style={[styles.passNotice, { backgroundColor: colors.muted }]}>
+              <Ionicons name="checkmark-circle" size={16} color={colors.success} />
+              <Text style={[styles.passNoticeText, { color: colors.inkSoft }]}>
+                Permanent pass encoded. Use this digital pass if you misplace your printed card.
               </Text>
             </View>
 
@@ -201,7 +255,7 @@ export default function Dashboard() {
               onPress={() => setShowQrModal(false)}
               style={[styles.doneBtn, { backgroundColor: colors.primary }]}
             >
-              <Text style={[styles.doneBtnText, { color: colors.primaryForeground }]}>Done</Text>
+              <Text style={[styles.doneBtnText, { color: colors.primaryForeground }]}>Close Pass</Text>
             </Pressable>
           </View>
         </View>
@@ -242,18 +296,38 @@ const styles = StyleSheet.create({
   quickTitle: { fontSize: 15, lineHeight: 18, fontWeight: '800' },
   note: { marginTop: 24, padding: 14, borderRadius: 16, flexDirection: 'row', gap: 10, alignItems: 'flex-start' },
   noteText: { flex: 1, fontSize: 12, lineHeight: 18, fontWeight: '600' },
-  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.65)', justifyContent: 'center', alignItems: 'center', padding: 20 },
-  modalBox: { width: '100%', maxWidth: 360, borderRadius: 24, borderWidth: 1, padding: 20, alignItems: 'center', shadowColor: '#000', shadowOffset: { width: 0, height: 10 }, shadowOpacity: 0.3, shadowRadius: 20, elevation: 12 },
-  modalTop: { width: '100%', flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 16 },
-  modalTitle: { fontSize: 18, fontWeight: '800' },
-  modalSub: { fontSize: 11, marginTop: 2 },
+  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.7)', justifyContent: 'center', alignItems: 'center', padding: 16 },
+  modalBox: { width: '100%', maxWidth: 380, borderRadius: 24, borderWidth: 1, padding: 18, alignItems: 'center', shadowColor: '#000', shadowOffset: { width: 0, height: 10 }, shadowOpacity: 0.35, shadowRadius: 24, elevation: 12 },
+  modalTop: { width: '100%', flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 14 },
+  modalHeaderLeft: { gap: 2 },
+  badgeRow: { flexDirection: 'row', alignItems: 'center', gap: 5 },
+  modalTitle: { fontSize: 18, fontWeight: '800', letterSpacing: -0.4 },
+  modalSub: { fontSize: 10, fontWeight: '800', letterSpacing: 1.2 },
   closeBtn: { padding: 4 },
-  qrContainer: { width: 220, height: 220, backgroundColor: '#ffffff', borderRadius: 20, padding: 12, justifyContent: 'center', alignItems: 'center', shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.1, shadowRadius: 8, elevation: 4 },
-  qrImage: { width: 196, height: 196 },
-  studentMeta: { width: '100%', alignItems: 'center', marginTop: 16, marginBottom: 18 },
-  studentMetaName: { fontSize: 16, fontWeight: '800', textAlign: 'center' },
-  studentMetaId: { fontSize: 13, fontWeight: '800', marginTop: 3 },
-  studentMetaYear: { fontSize: 11, marginTop: 2 },
-  doneBtn: { width: '100%', paddingVertical: 13, borderRadius: 14, alignItems: 'center', justifyContent: 'center' },
-  doneBtnText: { fontSize: 14, fontWeight: '800' },
+
+  /* Official Semester Pass Card Styles */
+  semesterCard: { width: '100%', backgroundColor: '#ffffff', borderRadius: 16, borderWidth: 2, borderColor: '#0f172a', padding: 12, shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.15, shadowRadius: 8, elevation: 6 },
+  cardHeaderRibbon: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', borderBottomWidth: 1.5, borderBottomColor: '#0f172a', paddingBottom: 6, marginBottom: 8 },
+  cardSchoolName: { fontSize: 8.5, fontWeight: '900', color: '#047857', letterSpacing: 0.8, textTransform: 'uppercase' },
+  cardAppName: { fontSize: 10.5, fontWeight: '900', color: '#0f172a', letterSpacing: -0.2, textTransform: 'uppercase', marginTop: 1 },
+  semesterBadge: { backgroundColor: '#0f172a', paddingHorizontal: 7, paddingVertical: 3, borderRadius: 4 },
+  semesterBadgeText: { color: '#ffffff', fontSize: 8, fontWeight: '900', letterSpacing: 0.8, textTransform: 'uppercase' },
+  cardBody: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: 8, marginVertical: 4 },
+  cardStudentInfo: { flex: 1, minWidth: 0 },
+  cardFieldLabel: { fontSize: 7, fontWeight: '800', color: '#64748b', textTransform: 'uppercase', letterSpacing: 0.5 },
+  cardStudentName: { fontSize: 12, fontWeight: '900', color: '#0f172a', textTransform: 'uppercase', letterSpacing: -0.3, marginTop: 1, marginBottom: 6 },
+  cardMetaGrid: { flexDirection: 'row', gap: 8 },
+  cardMetaCol: { gap: 3 },
+  cardMetaItem: { fontSize: 8.5, lineHeight: 11 },
+  cardMetaKey: { color: '#64748b', fontWeight: '700' },
+  cardMetaVal: { color: '#0f172a', fontWeight: '900' },
+  cardQrContainer: { width: 88, height: 88, borderRadius: 8, borderWidth: 1.5, borderColor: '#0f172a', backgroundColor: '#ffffff', padding: 2, justifyContent: 'center', alignItems: 'center', shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.08, shadowRadius: 4, elevation: 2 },
+  cardQrImage: { width: 80, height: 80 },
+  cardFooter: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', borderTopWidth: 1, borderTopColor: '#e2e8f0', paddingTop: 5, marginTop: 6 },
+  cardFooterText: { fontSize: 6.5, fontWeight: '800', color: '#64748b', letterSpacing: 0.4, textTransform: 'uppercase' },
+
+  passNotice: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 12, paddingVertical: 9, borderRadius: 12, width: '100%', marginTop: 12, marginBottom: 14 },
+  passNoticeText: { flex: 1, fontSize: 10.5, lineHeight: 14, fontWeight: '600' },
+  doneBtn: { width: '100%', paddingVertical: 12, borderRadius: 14, alignItems: 'center', justifyContent: 'center' },
+  doneBtnText: { fontSize: 13, fontWeight: '800' },
 });
