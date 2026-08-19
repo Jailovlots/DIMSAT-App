@@ -93,9 +93,17 @@ function sanitizeProfilePhoto(photo?: string | null): string | null {
 // ─── UTILITY HELPERS ─────────────────────────────────────────────────────────
 
 function parseMinutes(timeStr: string): number {
-  if (!timeStr) return 0;
-  const [h, m] = timeStr.split(":").map(Number);
-  return (h || 0) * 60 + (m || 0);
+  if (!timeStr || typeof timeStr !== "string") return 0;
+  const trimmed = timeStr.trim().toUpperCase();
+  const isPM = trimmed.includes("PM");
+  const isAM = trimmed.includes("AM");
+  const clean = trimmed.replace(/[A-Z\s]/g, "");
+  const [hRaw, mRaw] = clean.split(":").map(Number);
+  let h = hRaw || 0;
+  const m = mRaw || 0;
+  if (isPM && h < 12) h += 12;
+  if (isAM && h === 12) h = 0;
+  return h * 60 + m;
 }
 
 function getManilaTime(): { hours: number; minutes: number; currentMinutes: number; timeString: string; dateString: string } {
@@ -1767,7 +1775,33 @@ router.post("/attendance/scan", async (req, res, next) => {
     // 2. Resolve Active Attendance Session according to mode and Manila time
     let activeSession = null;
     if (assignedSessionId) {
-      activeSession = sessions.find((s) => s.id === assignedSessionId) || null;
+      const candidateSession = sessions.find((s) => s.id === assignedSessionId) || null;
+      if (candidateSession) {
+        if (!settings.isManualMode) {
+          const { currentMinutes, timeString } = getManilaTime();
+          const startMins = parseMinutes(candidateSession.startTime);
+          const endMins = parseMinutes(candidateSession.endTime);
+          const isOpen =
+            endMins >= startMins
+              ? currentMinutes >= startMins && currentMinutes <= endMins
+              : currentMinutes >= startMins || currentMinutes <= endMins;
+
+          if (!isOpen) {
+            if (currentMinutes > endMins) {
+              res.status(400).json({
+                error: `Attendance for "${candidateSession.name}" is already closed (${candidateSession.startTime} – ${candidateSession.endTime}). Scanning is not allowed once the session time is done.`,
+              });
+              return;
+            } else {
+              res.status(400).json({
+                error: `Scanning for "${candidateSession.name}" is not open yet (${candidateSession.startTime} – ${candidateSession.endTime}). Current time is ${timeString}.`,
+              });
+              return;
+            }
+          }
+        }
+        activeSession = candidateSession;
+      }
     }
 
     if (!activeSession) {
@@ -1870,7 +1904,33 @@ router.post("/attendance/confirm", async (req, res, next) => {
     // 2. Resolve active session
     let session = null;
     if (assignedSessionId) {
-      session = sessions.find((s) => s.id === assignedSessionId) || null;
+      const candidateSession = sessions.find((s) => s.id === assignedSessionId) || null;
+      if (candidateSession) {
+        if (!settings.isManualMode) {
+          const { currentMinutes, timeString } = getManilaTime();
+          const startMins = parseMinutes(candidateSession.startTime);
+          const endMins = parseMinutes(candidateSession.endTime);
+          const isOpen =
+            endMins >= startMins
+              ? currentMinutes >= startMins && currentMinutes <= endMins
+              : currentMinutes >= startMins || currentMinutes <= endMins;
+
+          if (!isOpen) {
+            if (currentMinutes > endMins) {
+              res.status(400).json({
+                error: `Attendance for "${candidateSession.name}" is already closed (${candidateSession.startTime} – ${candidateSession.endTime}). Scanning is not allowed once the session time is done.`,
+              });
+              return;
+            } else {
+              res.status(400).json({
+                error: `Scanning for "${candidateSession.name}" is not open yet (${candidateSession.startTime} – ${candidateSession.endTime}). Current time is ${timeString}.`,
+              });
+              return;
+            }
+          }
+        }
+        session = candidateSession;
+      }
     }
 
     if (!session) {
