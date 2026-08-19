@@ -132,8 +132,7 @@ function getManilaTime(): { hours: number; minutes: number; currentMinutes: numb
 
 function resolveCurrentSession(
   sessions: (typeof attendanceSessionsTable.$inferSelect)[],
-  isManualMode: boolean,
-  lateThresholdMinutes: number = 30
+  isManualMode: boolean
 ): { session: (typeof attendanceSessionsTable.$inferSelect) | null; error?: string } {
   if (!sessions || !sessions.length) {
     return { session: null, error: "No attendance sessions found for this event." };
@@ -154,25 +153,25 @@ function resolveCurrentSession(
     };
   }
 
-  // 2. In automatic mode: dynamically resolve based on Philippine Standard Time (Asia/Manila)
+  // 2. In automatic mode: strictly enforce Philippine Standard Time (Asia/Manila) session hours
   const { currentMinutes, timeString } = getManilaTime();
 
-  // Check which session window is currently open (startTime to endTime + lateThresholdMinutes)
+  // Check which session window is currently open (strictly between startTime and endTime)
   const activeMatch = enabledSessions.find((s) => {
     const startMins = parseMinutes(s.startTime);
     const endMins = parseMinutes(s.endTime);
     if (endMins >= startMins) {
-      return currentMinutes >= startMins && currentMinutes <= (endMins + lateThresholdMinutes);
+      return currentMinutes >= startMins && currentMinutes <= endMins;
     }
     // Overnight session (e.g. 21:00 to 02:00)
-    return currentMinutes >= startMins || currentMinutes <= (endMins + lateThresholdMinutes);
+    return currentMinutes >= startMins || currentMinutes <= endMins;
   });
 
   if (activeMatch) {
     return { session: activeMatch };
   }
 
-  // If outside all session windows, give an exact helpful reason with session times and current time
+  // If outside open session window (session is done or in a time gap), disallow scanning with exact reason
   const upcoming = enabledSessions
     .map((s) => ({ s, startMins: parseMinutes(s.startTime) }))
     .filter((x) => x.startMins > currentMinutes)
@@ -181,14 +180,26 @@ function resolveCurrentSession(
   if (upcoming) {
     return {
       session: null,
-      error: `No attendance session is open right now (${timeString}). Next session "${upcoming.s.name}" opens at ${upcoming.s.startTime}.`,
+      error: `Scanning is not allowed at this time (${timeString}). Next session "${upcoming.s.name}" opens at ${upcoming.s.startTime} – ${upcoming.s.endTime}.`,
     };
   }
 
-  const lastSession = enabledSessions[enabledSessions.length - 1];
+  const pastSessions = enabledSessions
+    .map((s) => ({ s, endMins: parseMinutes(s.endTime) }))
+    .filter((x) => x.endMins < currentMinutes)
+    .sort((a, b) => b.endMins - a.endMins);
+
+  if (pastSessions.length > 0) {
+    const mostRecent = pastSessions[0];
+    return {
+      session: null,
+      error: `Attendance for "${mostRecent.s.name}" is already closed (${mostRecent.s.startTime} – ${mostRecent.s.endTime}). Scanning is not allowed once the session time is done.`,
+    };
+  }
+
   return {
     session: null,
-    error: `Attendance is closed for today (${timeString}). The last session "${lastSession.name}" (${lastSession.startTime} – ${lastSession.endTime}) has ended.`,
+    error: `Attendance scanning is closed (${timeString}). No session is currently active.`,
   };
 }
 
@@ -1760,7 +1771,7 @@ router.post("/attendance/scan", async (req, res, next) => {
     }
 
     if (!activeSession) {
-      const resolved = resolveCurrentSession(sessions, settings.isManualMode, settings.lateThresholdMinutes);
+      const resolved = resolveCurrentSession(sessions, settings.isManualMode);
       if (!resolved.session) {
         res.status(400).json({ error: resolved.error || "No attendance session is currently open for scanning." });
         return;
@@ -1863,7 +1874,7 @@ router.post("/attendance/confirm", async (req, res, next) => {
     }
 
     if (!session) {
-      const resolved = resolveCurrentSession(sessions, settings.isManualMode, settings.lateThresholdMinutes);
+      const resolved = resolveCurrentSession(sessions, settings.isManualMode);
       if (!resolved.session) {
         res.status(400).json({ error: resolved.error || "No attendance session is open right now." });
         return;
@@ -1871,16 +1882,8 @@ router.post("/attendance/confirm", async (req, res, next) => {
       session = resolved.session;
     }
 
-    // 3. Determine status (present vs late based on lateThresholdMinutes and Manila time)
-    let scanStatus = "present";
-    const { currentMinutes } = getManilaTime();
-
-    if (session.startTime) {
-      const sessionStartMinutes = parseMinutes(session.startTime);
-      if (currentMinutes > sessionStartMinutes + settings.lateThresholdMinutes) {
-        scanStatus = "late";
-      }
-    }
+    // 3. Mark status as present (valid scan within open session hours)
+    const scanStatus = "present";
 
     // 4. Insert record with unique constraint protection
     const [record] = await db
