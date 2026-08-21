@@ -87,6 +87,7 @@ export function Field({ label, error, secureTextEntry, ...props }: TextInputProp
       <Text style={[styles.fieldLabel, { color: colors.inkSoft }]}>{label}</Text>
       <View style={styles.inputRow}>
         <TextInput
+          autoComplete="off"
           {...props}
           secureTextEntry={isPassword ? hidden : false}
           placeholderTextColor={colors.mutedForeground}
