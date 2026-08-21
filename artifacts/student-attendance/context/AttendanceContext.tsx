@@ -49,6 +49,7 @@ type ContextValue = {
   updatePhoto: (uri: string) => Promise<{ ok: boolean; error?: string }>;
   setNotifications: (value: boolean) => Promise<void>;
   lookupStudent: (studentId: string, fullName: string) => Promise<{ ok: boolean; student?: CertifiedStudent; error?: string }>;
+  resetPassword: (studentId: string, fullName: string, newPassword: string) => Promise<{ ok: boolean; error?: string }>;
 };
 
 const AttendanceContext = createContext<ContextValue | null>(null);
@@ -327,10 +328,51 @@ export function AttendanceProvider({ children }: { children: ReactNode }) {
     await persist({ accounts, activeStudentId: state.activeStudentId });
   }, [persist, state]);
 
+  const resetPassword = useCallback(async (studentId: string, fullName: string, newPassword: string) => {
+    const normalizedId = studentId.trim().toUpperCase();
+    if (!newPassword || newPassword.trim().length < 6) {
+      return { ok: false, error: 'Password must be at least 6 characters.' };
+    }
+
+    try {
+      const res = await fetch(`${API_URL}/auth/student/reset-password`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          studentId: normalizedId,
+          fullName: fullName.trim(),
+          newPassword: newPassword.trim(),
+        }),
+      });
+      const data = await res.json() as { error?: string };
+      if (!res.ok) return { ok: false, error: data.error ?? 'Password reset failed.' };
+    } catch {
+      // Offline fallback
+      const found = certifiedStudents.find(
+        (s) => s.studentId.toUpperCase() === normalizedId,
+      );
+      if (!found) return { ok: false, error: 'Student ID not found in certified roster.' };
+      if (fullName.trim() && found.fullName.toLowerCase().trim() !== fullName.toLowerCase().trim()) {
+        return { ok: false, error: `Full name mismatch for ${found.studentId}.` };
+      }
+    }
+
+    // Update local stored account password if exists
+    const existingIdx = state.accounts.findIndex((a) => a.studentId === normalizedId);
+    if (existingIdx >= 0) {
+      const updated = { ...state.accounts[existingIdx], password: newPassword.trim() };
+      const nextAccounts = [...state.accounts];
+      nextAccounts[existingIdx] = updated;
+      await persist({ accounts: nextAccounts, activeStudentId: state.activeStudentId });
+    }
+
+    return { ok: true };
+  }, [persist, state, certifiedStudents]);
+
   const account = state.accounts.find((item) => item.studentId === state.activeStudentId) ?? null;
   const value = useMemo(() => ({
-    account, isReady, sessions: ATTENDANCE_SESSIONS, certifiedStudents, register, login, logout, updatePhoto, setNotifications, lookupStudent,
-  }), [account, isReady, certifiedStudents, register, login, logout, updatePhoto, setNotifications, lookupStudent]);
+    account, isReady, sessions: ATTENDANCE_SESSIONS, certifiedStudents, register, login, logout, updatePhoto, setNotifications, lookupStudent, resetPassword,
+  }), [account, isReady, certifiedStudents, register, login, logout, updatePhoto, setNotifications, lookupStudent, resetPassword]);
 
   return <AttendanceContext.Provider value={value}>{children}</AttendanceContext.Provider>;
 }

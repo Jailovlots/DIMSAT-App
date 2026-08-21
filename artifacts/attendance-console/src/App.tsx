@@ -3947,20 +3947,20 @@ function Scanner() {
         </div>
 
         {/* RIGHT COLUMN: Stats & Last Scan Result */}
-        <div className="grid gap-6">
+        <div className="flex flex-col gap-4">
           {/* Top 3 Stat Cards (Compact) */}
-          <div className="grid grid-cols-3 gap-2.5">
-            <div className="rounded-xl border border-card-border bg-card px-3 py-2 text-center shadow-xs">
-              <div className="text-xl font-black text-foreground">{totalScans}</div>
-              <div className="mt-0.5 text-[11px] font-bold text-muted-foreground">Total Scans</div>
+          <div className="grid grid-cols-3 gap-3">
+            <div className="rounded-xl border border-card-border bg-card py-2.5 px-3 text-center shadow-xs">
+              <div className="text-2xl font-black text-foreground leading-none">{totalScans}</div>
+              <div className="mt-1 text-[11px] font-bold text-muted-foreground">Total Scans</div>
             </div>
-            <div className="rounded-xl border border-card-border bg-card px-3 py-2 text-center shadow-xs">
-              <div className="text-xl font-black text-emerald-600">{presentScans}</div>
-              <div className="mt-0.5 text-[11px] font-bold text-emerald-700 dark:text-emerald-400">Present</div>
+            <div className="rounded-xl border border-card-border bg-card py-2.5 px-3 text-center shadow-xs">
+              <div className="text-2xl font-black text-emerald-600 leading-none">{presentScans}</div>
+              <div className="mt-1 text-[11px] font-bold text-emerald-700 dark:text-emerald-400">Present</div>
             </div>
-            <div className="rounded-xl border border-card-border bg-card px-3 py-2 text-center shadow-xs">
-              <div className="text-xl font-black text-rose-500">{absentScans}</div>
-              <div className="mt-0.5 text-[11px] font-bold text-rose-600 dark:text-rose-400">Absent</div>
+            <div className="rounded-xl border border-card-border bg-card py-2.5 px-3 text-center shadow-xs">
+              <div className="text-2xl font-black text-rose-500 leading-none">{absentScans}</div>
+              <div className="mt-1 text-[11px] font-bold text-rose-600 dark:text-rose-400">Absent</div>
             </div>
           </div>
 

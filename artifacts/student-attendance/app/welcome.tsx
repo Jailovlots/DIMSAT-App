@@ -19,16 +19,18 @@ export default function WelcomeScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const { login } = useAttendance();
-  const [mode, setMode] = useState<'login' | 'register'>('login');
+  const [mode, setMode] = useState<'login' | 'register' | 'reset'>('login');
   const [studentId, setStudentId] = useState('');
   const [password, setPassword] = useState('');
   const [name, setName] = useState('');
   const [confirm, setConfirm] = useState('');
   const [error, setError] = useState('');
+  const [successMsg, setSuccessMsg] = useState('');
   const [busy, setBusy] = useState(false);
 
   const submitLogin = async () => {
     setError('');
+    setSuccessMsg('');
     setBusy(true);
     const result = await login(studentId, password);
     setBusy(false);
@@ -71,7 +73,7 @@ export default function WelcomeScreen() {
         {/* Tab switcher */}
         <View style={[styles.tabBar, { backgroundColor: colors.muted, borderColor: colors.border }]}>
           <Pressable
-            onPress={() => { setMode('login'); setError(''); }}
+            onPress={() => { setMode('login'); setError(''); setSuccessMsg(''); }}
             style={[styles.tabBtn, mode === 'login' && { backgroundColor: colors.primary }]}
           >
             <Text style={[styles.tabLabel, { color: mode === 'login' ? colors.primaryForeground : colors.mutedForeground }]}>
@@ -79,14 +81,29 @@ export default function WelcomeScreen() {
             </Text>
           </Pressable>
           <Pressable
-            onPress={() => { setMode('register'); setError(''); }}
+            onPress={() => { setMode('register'); setError(''); setSuccessMsg(''); }}
             style={[styles.tabBtn, mode === 'register' && { backgroundColor: colors.primary }]}
           >
             <Text style={[styles.tabLabel, { color: mode === 'register' ? colors.primaryForeground : colors.mutedForeground }]}>
               Register
             </Text>
           </Pressable>
+          <Pressable
+            onPress={() => { setMode('reset'); setError(''); setSuccessMsg(''); }}
+            style={[styles.tabBtn, mode === 'reset' && { backgroundColor: colors.primary }]}
+          >
+            <Text style={[styles.tabLabel, { color: mode === 'reset' ? colors.primaryForeground : colors.mutedForeground }]}>
+              Reset Pwd
+            </Text>
+          </Pressable>
         </View>
+
+        {successMsg ? (
+          <View style={[styles.successBanner, { backgroundColor: `${colors.success}18`, borderColor: colors.success }]}>
+            <Feather name="check-circle" size={16} color={colors.success} />
+            <Text style={[styles.successBannerText, { color: colors.success }]}>{successMsg}</Text>
+          </View>
+        ) : null}
 
         {/* Form card */}
         <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }]}>
@@ -95,10 +112,11 @@ export default function WelcomeScreen() {
               studentId={studentId} setStudentId={setStudentId}
               password={password} setPassword={setPassword}
               error={error} busy={busy}
+              onForgot={() => { setMode('reset'); setError(''); setSuccessMsg(''); }}
               onSubmit={submitLogin}
               colors={colors}
             />
-          ) : (
+          ) : mode === 'register' ? (
             <RegisterForm
               name={name} setName={setName}
               studentId={studentId} setStudentId={setStudentId}
@@ -106,6 +124,22 @@ export default function WelcomeScreen() {
               confirm={confirm} setConfirm={setConfirm}
               error={error} busy={busy}
               setBusy={setBusy} setError={setError}
+              colors={colors}
+            />
+          ) : (
+            <ResetPasswordForm
+              name={name} setName={setName}
+              studentId={studentId} setStudentId={setStudentId}
+              password={password} setPassword={setPassword}
+              confirm={confirm} setConfirm={setConfirm}
+              error={error} busy={busy}
+              setBusy={setBusy} setError={setError}
+              onSuccess={(msg) => {
+                setSuccessMsg(msg);
+                setMode('login');
+                setPassword('');
+                setConfirm('');
+              }}
               colors={colors}
             />
           )}
@@ -124,10 +158,11 @@ export default function WelcomeScreen() {
 }
 
 // ── Login form ──────────────────────────────────────────────────────────────
-function LoginForm({ studentId, setStudentId, password, setPassword, error, busy, onSubmit, colors }: {
+function LoginForm({ studentId, setStudentId, password, setPassword, error, busy, onForgot, onSubmit, colors }: {
   studentId: string; setStudentId: (v: string) => void;
   password: string; setPassword: (v: string) => void;
   error: string; busy: boolean;
+  onForgot: () => void;
   onSubmit: () => void;
   colors: ReturnType<typeof useColors>;
 }) {
@@ -144,6 +179,9 @@ function LoginForm({ studentId, setStudentId, password, setPassword, error, busy
       </View>
       <Field label="Student ID" value={studentId} onChangeText={setStudentId} placeholder="e.g. BSIS-2026-0001" autoCapitalize="characters" autoCorrect={false} />
       <Field label="Password" value={password} onChangeText={setPassword} placeholder="Your password" secureTextEntry onSubmitEditing={onSubmit} error={error} />
+      <Pressable onPress={onForgot} style={styles.forgotBtn}>
+        <Text style={[styles.forgotBtnText, { color: colors.primary }]}>Forgot or reset your password?</Text>
+      </Pressable>
       <PrimaryButton label="Continue to Attenda" icon="arrow-right" onPress={onSubmit} loading={busy} />
     </View>
   );
@@ -194,6 +232,60 @@ function RegisterForm({ name, setName, studentId, setStudentId, password, setPas
   );
 }
 
+// ── Reset Password form ─────────────────────────────────────────────────────
+function ResetPasswordForm({ name, setName, studentId, setStudentId, password, setPassword, confirm, setConfirm, error, busy, setBusy, setError, onSuccess, colors }: {
+  name: string; setName: (v: string) => void;
+  studentId: string; setStudentId: (v: string) => void;
+  password: string; setPassword: (v: string) => void;
+  confirm: string; setConfirm: (v: string) => void;
+  error: string; busy: boolean;
+  setBusy: (v: boolean) => void; setError: (v: string) => void;
+  onSuccess: (msg: string) => void;
+  colors: ReturnType<typeof useColors>;
+}) {
+  const { resetPassword, lookupStudent } = useAttendance();
+
+  const submit = async () => {
+    setError('');
+    if (!studentId.trim()) return setError('Student ID is required.');
+    if (!name.trim()) return setError('Full name is required to verify identity.');
+    if (password.length < 6) return setError('New password must be at least 6 characters.');
+    if (password !== confirm) return setError('Passwords do not match.');
+
+    setBusy(true);
+    const lookup = await lookupStudent(studentId.trim(), name.trim());
+    if (!lookup.ok) {
+      setBusy(false);
+      return setError(lookup.error ?? 'Student verification failed.');
+    }
+
+    const result = await resetPassword(studentId.trim(), name.trim(), password);
+    setBusy(false);
+    if (!result.ok) return setError(result.error ?? 'Failed to reset password.');
+
+    onSuccess('✅ Password reset successful! Please log in with your new password.');
+  };
+
+  return (
+    <View>
+      <View style={styles.formHeader}>
+        <View style={[styles.formIcon, { backgroundColor: `${colors.primary}20` }]}>
+          <Feather name="key" size={18} color={colors.primary} />
+        </View>
+        <View>
+          <Text style={[styles.formTitle, { color: colors.foreground }]}>Reset your password</Text>
+          <Text style={[styles.formSub, { color: colors.mutedForeground }]}>Verify with your certified student record</Text>
+        </View>
+      </View>
+      <Field label="Full name" value={name} onChangeText={setName} placeholder="Your registered full name" autoCapitalize="words" />
+      <Field label="Student ID" value={studentId} onChangeText={setStudentId} placeholder="e.g. BSIS-2026-0001" autoCapitalize="characters" />
+      <Field label="New Password" value={password} onChangeText={setPassword} placeholder="At least 6 characters" secureTextEntry />
+      <Field label="Confirm New Password" value={confirm} onChangeText={setConfirm} placeholder="Repeat new password" secureTextEntry error={error} />
+      <PrimaryButton label="Update Password" icon="check" onPress={submit} loading={busy} />
+    </View>
+  );
+}
+
 // ── Styles ──────────────────────────────────────────────────────────────────
 const styles = StyleSheet.create({
   root: { flex: 1 },
@@ -223,6 +315,14 @@ const styles = StyleSheet.create({
   formIcon: { width: 40, height: 40, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
   formTitle: { fontSize: 17, fontWeight: '800', letterSpacing: -0.3 },
   formSub: { fontSize: 12, lineHeight: 16, marginTop: 1 },
+
+  // Success banner
+  successBanner: { flexDirection: 'row', alignItems: 'center', gap: 8, padding: 12, borderRadius: 14, borderWidth: 1, marginHorizontal: 2 },
+  successBannerText: { flex: 1, fontSize: 12, fontWeight: '700', lineHeight: 16 },
+
+  // Forgot password button
+  forgotBtn: { alignSelf: 'flex-end', marginTop: 4, marginBottom: 12, paddingVertical: 4 },
+  forgotBtnText: { fontSize: 12, fontWeight: '700' },
 
   // Footer
   footer: { flexDirection: 'row', justifyContent: 'center', alignItems: 'center', gap: 6, paddingVertical: 4 },

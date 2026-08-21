@@ -344,6 +344,68 @@ router.post("/auth/student/register", async (req, res, next) => {
   }
 });
 
+router.post("/auth/student/reset-password", async (req, res, next) => {
+  try {
+    const { studentId, fullName, newPassword } = req.body as {
+      studentId?: string;
+      fullName?: string;
+      newPassword?: string;
+    };
+
+    if (!studentId || !studentId.trim()) {
+      res.status(400).json({ error: "Student ID is required." });
+      return;
+    }
+    if (!newPassword || newPassword.trim().length < 6) {
+      res.status(400).json({ error: "New password must be at least 6 characters." });
+      return;
+    }
+
+    const cleanStudentId = studentId.trim();
+    const cleanFullName = (fullName || "").trim();
+
+    const certifiedList = await db
+      .select()
+      .from(certifiedStudentsTable)
+      .where(ilike(certifiedStudentsTable.studentId, cleanStudentId))
+      .limit(1);
+
+    const student = certifiedList[0];
+    if (!student) {
+      res.status(400).json({ error: "Student ID not found in certified student roster." });
+      return;
+    }
+
+    if (cleanFullName && student.fullName.toLowerCase().trim() !== cleanFullName.toLowerCase()) {
+      res.status(400).json({
+        error: `Full name does not match certified record for ${student.studentId}.`,
+      });
+      return;
+    }
+
+    const [updated] = await db
+      .update(certifiedStudentsTable)
+      .set({
+        isRegistered: true,
+        passwordHash: newPassword.trim(),
+        updatedAt: new Date(),
+      })
+      .where(eq(certifiedStudentsTable.id, student.id))
+      .returning();
+
+    await db.insert(auditLogsTable).values({
+      action: "STUDENT_RESET_PASSWORD",
+      entityType: "student",
+      entityId: String(updated.studentId),
+      details: `Student reset their password: ${updated.fullName} (${updated.studentId})`,
+    });
+
+    res.json({ message: "Password updated successfully.", studentId: updated.studentId });
+  } catch (err) {
+    next(err);
+  }
+});
+
 router.post("/auth/student/login", async (req, res, next) => {
   try {
     const { studentId, password } = req.body as { studentId?: string; password?: string };
