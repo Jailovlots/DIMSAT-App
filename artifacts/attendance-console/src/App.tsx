@@ -374,7 +374,7 @@ function AppShell({ children }: { children: React.ReactNode }) {
               <div className="min-w-0 flex-1">
                 <div className="truncate text-[13px] font-bold text-white">{user.fullName}</div>
                 <div className="font-mono text-[10px] font-bold text-slate-300 uppercase tracking-wider">
-                  {user.role === 'super_admin' ? 'SUPER ADMIN' : user.role === 'officer' ? 'OFFICER' : 'STUDENT'}
+                  {user.role === 'super_admin' ? 'MAIN ADMIN' : user.role === 'officer' ? 'OFFICER' : 'STUDENT'}
                 </div>
               </div>
               <ChevronDown className="ml-auto size-3.5 text-slate-400" />
@@ -699,7 +699,7 @@ function AppHeader({ location, onOpenMobile }: { location: string; onOpenMobile?
     window.dispatchEvent(new Event('storage'));
     toast({
       title: "Mode Switched",
-      description: `Active role updated to ${newRole === 'super_admin' ? 'Super Admin' : newRole === 'officer' ? 'Officer' : 'Student'}.`,
+      description: `Active role updated to ${newRole === 'super_admin' ? 'Main Admin' : newRole === 'officer' ? 'Officer' : 'Student'}.`,
     });
   };
 
@@ -767,7 +767,7 @@ function AppHeader({ location, onOpenMobile }: { location: string; onOpenMobile?
                 <div className="min-w-0 flex-1">
                   <div className="truncate text-xs font-extrabold text-foreground">{user.fullName}</div>
                   <div className="font-mono text-[9px] font-bold text-primary uppercase tracking-wider">
-                    {user.role === 'super_admin' ? '🛡️ SUPER ADMIN' : user.role === 'officer' ? '👮 OFFICER' : '🎓 STUDENT'}
+                    {user.role === 'super_admin' ? '🛡️ MAIN ADMIN' : user.role === 'officer' ? '👮 OFFICER' : '🎓 STUDENT'}
                   </div>
                 </div>
               </div>
@@ -3494,7 +3494,7 @@ function Scanner() {
 
   const totalScans = records.length;
   const presentScans = records.filter(r => r.status === 'present').length;
-  const lateScans = records.filter(r => r.status === 'late').length;
+  const absentScans = records.filter(r => r.status === 'absent').length || Math.max(0, students.length - presentScans);
 
   // Auto-fill CSC Permanent QR token on page load
   useEffect(() => {
@@ -3948,19 +3948,19 @@ function Scanner() {
 
         {/* RIGHT COLUMN: Stats & Last Scan Result */}
         <div className="grid gap-6">
-          {/* Top 3 Stat Cards */}
-          <div className="grid grid-cols-3 gap-4">
-            <div className="rounded-2xl border border-card-border bg-card p-5 text-center shadow-sm">
-              <div className="text-3xl font-black text-foreground">{totalScans}</div>
-              <div className="mt-1 text-xs font-semibold text-muted-foreground">Total Scans</div>
+          {/* Top 3 Stat Cards (Compact) */}
+          <div className="grid grid-cols-3 gap-2.5">
+            <div className="rounded-xl border border-card-border bg-card px-3 py-2 text-center shadow-xs">
+              <div className="text-xl font-black text-foreground">{totalScans}</div>
+              <div className="mt-0.5 text-[11px] font-bold text-muted-foreground">Total Scans</div>
             </div>
-            <div className="rounded-2xl border border-card-border bg-card p-5 text-center shadow-sm">
-              <div className="text-3xl font-black text-emerald-600">{presentScans}</div>
-              <div className="mt-1 text-xs font-semibold text-emerald-700 dark:text-emerald-400">Present</div>
+            <div className="rounded-xl border border-card-border bg-card px-3 py-2 text-center shadow-xs">
+              <div className="text-xl font-black text-emerald-600">{presentScans}</div>
+              <div className="mt-0.5 text-[11px] font-bold text-emerald-700 dark:text-emerald-400">Present</div>
             </div>
-            <div className="rounded-2xl border border-card-border bg-card p-5 text-center shadow-sm">
-              <div className="text-3xl font-black text-amber-500">{lateScans}</div>
-              <div className="mt-1 text-xs font-semibold text-amber-700 dark:text-amber-400">Late</div>
+            <div className="rounded-xl border border-card-border bg-card px-3 py-2 text-center shadow-xs">
+              <div className="text-xl font-black text-rose-500">{absentScans}</div>
+              <div className="mt-0.5 text-[11px] font-bold text-rose-600 dark:text-rose-400">Absent</div>
             </div>
           </div>
 
