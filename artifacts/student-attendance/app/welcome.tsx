@@ -1,6 +1,6 @@
-import React, { useState } from 'react';
+import React, { useState, useCallback } from 'react';
 import { Feather } from '@expo/vector-icons';
-import { router } from 'expo-router';
+import { router, useFocusEffect } from 'expo-router';
 import {
   Platform,
   Pressable,
@@ -28,6 +28,27 @@ export default function WelcomeScreen() {
   const [successMsg, setSuccessMsg] = useState('');
   const [busy, setBusy] = useState(false);
 
+  // Clean form fields every time the welcome screen gains focus (e.g. after logout)
+  useFocusEffect(
+    useCallback(() => {
+      setStudentId('');
+      setPassword('');
+      setName('');
+      setConfirm('');
+      setError('');
+      setSuccessMsg('');
+      setMode('login');
+    }, [])
+  );
+
+  const switchMode = (newMode: 'login' | 'register' | 'reset') => {
+    setMode(newMode);
+    setError('');
+    setSuccessMsg('');
+    setPassword('');
+    setConfirm('');
+  };
+
   const submitLogin = async () => {
     setError('');
     setSuccessMsg('');
@@ -35,6 +56,10 @@ export default function WelcomeScreen() {
     const result = await login(studentId, password);
     setBusy(false);
     if (!result.ok) return setError(result.error ?? '');
+    // Clean input credentials before entering tabs
+    setStudentId('');
+    setPassword('');
+    setError('');
     router.replace('/(tabs)');
   };
 
@@ -73,7 +98,7 @@ export default function WelcomeScreen() {
         {/* Tab switcher */}
         <View style={[styles.tabBar, { backgroundColor: colors.muted, borderColor: colors.border }]}>
           <Pressable
-            onPress={() => { setMode('login'); setError(''); setSuccessMsg(''); }}
+            onPress={() => switchMode('login')}
             style={[styles.tabBtn, mode === 'login' && { backgroundColor: colors.primary }]}
           >
             <Text style={[styles.tabLabel, { color: mode === 'login' ? colors.primaryForeground : colors.mutedForeground }]}>
@@ -81,7 +106,7 @@ export default function WelcomeScreen() {
             </Text>
           </Pressable>
           <Pressable
-            onPress={() => { setMode('register'); setError(''); setSuccessMsg(''); }}
+            onPress={() => switchMode('register')}
             style={[styles.tabBtn, mode === 'register' && { backgroundColor: colors.primary }]}
           >
             <Text style={[styles.tabLabel, { color: mode === 'register' ? colors.primaryForeground : colors.mutedForeground }]}>
@@ -89,7 +114,7 @@ export default function WelcomeScreen() {
             </Text>
           </Pressable>
           <Pressable
-            onPress={() => { setMode('reset'); setError(''); setSuccessMsg(''); }}
+            onPress={() => switchMode('reset')}
             style={[styles.tabBtn, mode === 'reset' && { backgroundColor: colors.primary }]}
           >
             <Text style={[styles.tabLabel, { color: mode === 'reset' ? colors.primaryForeground : colors.mutedForeground }]}>
@@ -112,7 +137,7 @@ export default function WelcomeScreen() {
               studentId={studentId} setStudentId={setStudentId}
               password={password} setPassword={setPassword}
               error={error} busy={busy}
-              onForgot={() => { setMode('reset'); setError(''); setSuccessMsg(''); }}
+              onForgot={() => switchMode('reset')}
               onSubmit={submitLogin}
               colors={colors}
             />

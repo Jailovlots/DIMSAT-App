@@ -88,6 +88,9 @@ export function Field({ label, error, secureTextEntry, ...props }: TextInputProp
       <View style={styles.inputRow}>
         <TextInput
           autoComplete="off"
+          textContentType="none"
+          importantForAutofill="no"
+          autoCorrect={false}
           {...props}
           secureTextEntry={isPassword ? hidden : false}
           placeholderTextColor={colors.mutedForeground}

@@ -202,7 +202,7 @@ function StudentAvatar({
   );
 }
 
-function Field({ label, value, onChange, placeholder, type = 'text' }: { label: string; value: string; onChange: (v: string) => void; placeholder?: string; type?: string }) {
+function Field({ label, value, onChange, placeholder, type = 'text', autoComplete = 'off' }: { label: string; value: string; onChange: (v: string) => void; placeholder?: string; type?: string; autoComplete?: string }) {
   const [showPwd, setShowPwd] = useState(false);
   const isPassword = type === 'password';
   return (
@@ -215,6 +215,11 @@ function Field({ label, value, onChange, placeholder, type = 'text' }: { label: 
           value={value}
           onChange={e => onChange(e.target.value)}
           placeholder={placeholder}
+          autoComplete={autoComplete}
+          autoCorrect="off"
+          autoCapitalize="off"
+          spellCheck={false}
+          data-lpignore="true"
           className={`h-10 w-full rounded-lg border border-input bg-background px-3 text-sm font-medium text-foreground outline-none transition-colors placeholder:text-muted-foreground/55 focus:border-primary focus:ring-2 focus:ring-primary/15 ${isPassword ? 'pr-10' : ''}`}
         />
         {isPassword && (
@@ -294,10 +299,22 @@ function AppShell({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState(getStoredStaffUser);
 
   useEffect(() => {
-    const syncUser = () => setUser(getStoredStaffUser());
+    const syncUser = () => {
+      const u = getStoredStaffUser();
+      setUser(u);
+      if (!localStorage.getItem('dimsat_user')) {
+        setLocation('/sign-in');
+      }
+    };
     window.addEventListener('storage', syncUser);
     return () => window.removeEventListener('storage', syncUser);
-  }, []);
+  }, [setLocation]);
+
+  useEffect(() => {
+    if (!localStorage.getItem('dimsat_user')) {
+      setLocation('/sign-in');
+    }
+  }, [location, setLocation]);
 
   const isOfficer = user.role === 'officer';
   const isStudent = user.role === 'student';
@@ -348,29 +365,26 @@ function AppShell({ children }: { children: React.ReactNode }) {
                 key={item.href}
                 href={item.href}
                 onClick={() => setMobileOpen(false)}
-                className={`group relative flex items-center gap-3 rounded-lg px-3 py-2 text-[14px] font-bold transition-all duration-150
-                  ${active
-                    ? 'bg-sidebar-accent text-white nav-item-active-glow'
-                    : 'text-slate-100 hover:bg-sidebar-accent/60 hover:text-white'}`}
+                className={`group flex items-center gap-3 rounded-lg px-3 py-2 text-[13px] font-bold transition-all ${
+                  active
+                    ? 'bg-white/10 text-white shadow-sm ring-1 ring-white/20'
+                    : 'text-slate-300 hover:bg-white/5 hover:text-white'
+                }`}
               >
-                {/* Active left accent line */}
-                {active && <span className="absolute left-0 top-1.5 bottom-1.5 w-[3px] rounded-full bg-sidebar-primary shadow-[0_0_8px_#4ade80]" />}
-                <Icon className={`size-[18px] shrink-0 transition-colors ${active ? iconColor : `${iconColor} opacity-90 group-hover:opacity-100`}`} />
-                <span>{item.label}</span>
-                {item.href === '/scanner' && <span className="ml-auto size-2 rounded-full bg-[#f472b6] shadow-[0_0_6px_#f472b6]" />}
+                <Icon className={`size-4 shrink-0 transition-transform group-hover:scale-110 ${active ? iconColor : 'text-slate-300 group-hover:text-white'}`} />
+                <span className="truncate">{item.label}</span>
+                {active && <div className="ml-auto size-1.5 rounded-full bg-[#4ade80] shadow-[0_0_8px_#4ade80]" />}
               </Link>
             );
           })}
         </nav>
-        <div className="mt-auto pt-2 grid gap-1">
-          {!isOfficer && !isStudent && (
-            <Link data-testid="link-settings" href="/settings" className={`flex items-center gap-3 rounded-lg px-3 py-2 text-[14px] font-bold transition-all ${location === '/settings' ? 'bg-sidebar-accent text-white nav-item-active-glow' : 'text-slate-100 hover:bg-sidebar-accent/60 hover:text-white'}`}>
-              <Settings2 className={`size-[18px] shrink-0 ${location === '/settings' ? 'text-[#38bdf8]' : 'text-[#38bdf8] opacity-90 group-hover:opacity-100'}`} />Setting
-            </Link>
-          )}
-          <div className="mt-2 border-t border-slate-700/60 pt-2.5">
-            <div className="flex items-center gap-2.5 rounded-lg px-2.5 py-2 hover:bg-sidebar-accent/50 transition-colors cursor-default">
-              <div className="grid size-8 place-items-center rounded-full bg-gradient-to-br from-[#4ade80]/30 to-[#38bdf8]/30 font-mono text-[11px] font-extrabold text-[#4ade80] ring-1 ring-[#4ade80]/40">{initials}</div>
+        {/* User Card at bottom of sidebar */}
+        <div className="mt-auto pt-4">
+          <div className="rounded-xl border border-white/10 bg-white/5 p-2.5 backdrop-blur-sm">
+            <div className="flex items-center gap-2.5 px-1 py-1">
+              <div className="size-8 rounded-full bg-gradient-to-br from-[#4ade80] to-[#38bdf8] flex items-center justify-center font-mono text-xs font-bold text-slate-950 shadow-sm shrink-0">
+                {initials}
+              </div>
               <div className="min-w-0 flex-1">
                 <div className="truncate text-[13px] font-bold text-white">{user.fullName}</div>
                 <div className="font-mono text-[10px] font-bold text-slate-300 uppercase tracking-wider">
@@ -383,8 +397,9 @@ function AppShell({ children }: { children: React.ReactNode }) {
               data-testid="button-sign-out"
               onClick={() => {
                 localStorage.removeItem('dimsat_user');
+                sessionStorage.clear();
                 window.dispatchEvent(new Event('storage'));
-                setLocation('/');
+                setLocation('/sign-in');
               }}
               className="mt-1 flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-[13px] font-bold text-slate-200 hover:bg-red-500/20 hover:text-red-300 transition-all"
             >
@@ -491,11 +506,18 @@ function Landing() {
 }
 
 function SignIn() {
-  const [, setLocation] = useLocation();
+  const [location, setLocation] = useLocation();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+
+  // Always reset fields to ensure clean login form on mount and route change
+  useEffect(() => {
+    setEmail('');
+    setPassword('');
+    setError('');
+  }, [location]);
 
   const handleSubmit = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
@@ -517,6 +539,9 @@ function SignIn() {
         if (email.toLowerCase().includes('admin') || email.toLowerCase().includes('attenda')) {
           const defaultAdmin: StaffUser = { id: 0, fullName: 'Admin', email: email.trim(), role: 'super_admin' };
           localStorage.setItem('dimsat_user', JSON.stringify(defaultAdmin));
+          setEmail('');
+          setPassword('');
+          setError('');
           setLocation('/dashboard');
           return;
         }
@@ -525,6 +550,9 @@ function SignIn() {
       }
 
       localStorage.setItem('dimsat_user', JSON.stringify(data.user));
+      setEmail('');
+      setPassword('');
+      setError('');
       setLocation('/dashboard');
     } catch {
       setLoading(false);
@@ -536,6 +564,9 @@ function SignIn() {
         role: email.toLowerCase().includes('officer') ? 'officer' : 'super_admin',
       };
       localStorage.setItem('dimsat_user', JSON.stringify(fallbackUser));
+      setEmail('');
+      setPassword('');
+      setError('');
       setLocation('/dashboard');
     }
   };
@@ -571,9 +602,9 @@ function SignIn() {
             <div className="font-mono text-[10px] uppercase tracking-[.16em] text-primary">Welcome back</div>
             <h2 className="mt-2 text-2xl font-extrabold tracking-[-.05em] sm:text-3xl">Sign in to DIMSAT</h2>
             <p className="mt-1 text-xs leading-5 text-muted-foreground">Use your school staff identity to continue.</p>
-            <form onSubmit={handleSubmit} className="mt-6 grid gap-3.5">
-              <Field label="Work email" value={email} onChange={setEmail} placeholder="name@school.edu" />
-              <Field label="Password" value={password} onChange={setPassword} placeholder="Enter your password" type="password" />
+            <form onSubmit={handleSubmit} className="mt-6 grid gap-3.5" autoComplete="off">
+              <Field label="Work email" value={email} onChange={setEmail} placeholder="name@school.edu" autoComplete="off" />
+              <Field label="Password" value={password} onChange={setPassword} placeholder="Enter your password" type="password" autoComplete="new-password" />
               {error && <div className="text-xs font-semibold text-red-500">{error}</div>}
               <Button type="submit" disabled={loading} data-testid="button-submit-sign-in" className="mt-1 h-10 w-full text-xs">
                 {loading ? 'Signing in…' : 'Continue'} <ArrowRight className="size-3.5" />
@@ -797,8 +828,9 @@ function AppHeader({ location, onOpenMobile }: { location: string; onOpenMobile?
                 data-testid="kebab-button-sign-out"
                 onClick={() => {
                   localStorage.removeItem('dimsat_user');
+                  sessionStorage.clear();
                   window.dispatchEvent(new Event('storage'));
-                  setLocation('/');
+                  setLocation('/sign-in');
                 }}
                 className="flex items-center gap-2 cursor-pointer text-xs font-semibold text-red-500 focus:bg-red-500/10 focus:text-red-600"
               >
