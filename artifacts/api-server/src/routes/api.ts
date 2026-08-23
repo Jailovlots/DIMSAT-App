@@ -13,9 +13,12 @@ import {
   attendanceQrCodesTable,
   qrAssignmentsTable,
 } from "@workspace/db";
-import { db } from "@workspace/db";
+import { db, pool } from "@workspace/db";
 import crypto from "node:crypto";
 import * as XLSX from "xlsx";
+
+// Ensure admin_password column exists in system_settings
+pool.query("ALTER TABLE system_settings ADD COLUMN IF NOT EXISTS admin_password text DEFAULT 'admin123';").catch(() => {});
 
 const router = Router();
 
@@ -214,7 +217,11 @@ function resolveCurrentSession(
 // ─── AUTH / STUDENT LOOKUP (dry-run validation, no side effects) ──────────────
 router.post("/auth/student/lookup", async (req, res, next) => {
   try {
-    const { studentId, fullName } = req.body as { studentId?: string; fullName?: string };
+    const { studentId, fullName, mode } = req.body as {
+      studentId?: string;
+      fullName?: string;
+      mode?: "register" | "reset" | "any";
+    };
 
     if (!studentId || !studentId.trim()) {
       res.status(400).json({ error: "Student ID is required." });
@@ -236,7 +243,7 @@ router.post("/auth/student/lookup", async (req, res, next) => {
       return;
     }
 
-    if (student.isRegistered || student.passwordHash) {
+    if (mode !== "reset" && mode !== "any" && (student.isRegistered || student.passwordHash)) {
       res.status(400).json({ error: "This Student ID is already registered." });
       return;
     }
@@ -2243,12 +2250,29 @@ router.post("/auth/staff/login", async (req, res, next) => {
 
     const cleanEmail = email.trim().toLowerCase();
 
-    // Default Admin login check
-    if (cleanEmail === "admin@attenda.edu" && password === "admin123") {
+    // Fetch dynamic admin password from system settings
+    let adminPassword = "admin123";
+    try {
+      const sRows = await db.select().from(systemSettingsTable).limit(1);
+      if (sRows[0]?.adminPassword) {
+        adminPassword = sRows[0].adminPassword;
+      }
+    } catch {
+      // fallback to default
+    }
+
+    // Default or configured Admin login check
+    const isAdminEmail =
+      cleanEmail === "admin@attenda.edu" ||
+      cleanEmail === "admin@zdspgc.edu.ph" ||
+      cleanEmail === "admin" ||
+      cleanEmail.startsWith("admin@");
+
+    if (isAdminEmail && password === adminPassword) {
       res.json({
         user: {
           id: 0,
-          fullName: "Admin",
+          fullName: "Administrator",
           email: cleanEmail,
           role: "super_admin",
         },
@@ -2288,6 +2312,70 @@ router.post("/auth/staff/login", async (req, res, next) => {
   }
 });
 
+// Admin Password Change Endpoint
+router.post("/auth/admin/change-password", async (req, res, next) => {
+  try {
+    const { currentPassword, newPassword } = req.body as {
+      currentPassword?: string;
+      newPassword?: string;
+    };
+
+    if (!newPassword || newPassword.trim().length < 6) {
+      res.status(400).json({ error: "New password must be at least 6 characters long." });
+      return;
+    }
+
+    // Retrieve current settings
+    let currentAdminPassword = "admin123";
+    const sRows = await db.select().from(systemSettingsTable).limit(1);
+    if (sRows[0]?.adminPassword) {
+      currentAdminPassword = sRows[0].adminPassword;
+    }
+
+    // If currentPassword is provided, verify it against current admin password
+    if (currentPassword !== undefined && currentPassword.trim() !== currentAdminPassword) {
+      res.status(400).json({ error: "Current admin password is incorrect." });
+      return;
+    }
+
+    const trimmedNewPassword = newPassword.trim();
+
+    if (sRows[0]) {
+      await db
+        .update(systemSettingsTable)
+        .set({
+          adminPassword: trimmedNewPassword,
+          updatedAt: new Date(),
+        })
+        .where(eq(systemSettingsTable.id, sRows[0].id));
+    } else {
+      await db.insert(systemSettingsTable).values({
+        adminPassword: trimmedNewPassword,
+      });
+    }
+
+    // Also update any super_admin officers in officersTable if they exist
+    try {
+      await db
+        .update(officersTable)
+        .set({ passwordHash: trimmedNewPassword })
+        .where(
+          or(
+            eq(officersTable.role, "super_admin"),
+            ilike(officersTable.email, "%admin%")
+          )
+        );
+    } catch {}
+
+    res.json({
+      ok: true,
+      message: "Admin password has been updated successfully.",
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
 // ─── SYSTEM SETTINGS ──────────────────────────────────────────────────────────
 
 function formatSettings(s: typeof systemSettingsTable.$inferSelect) {
@@ -2317,6 +2405,7 @@ router.get("/settings", async (_req, res, next) => {
       .values({
         schoolName: "ZDSPGC – Dimataling Campus",
         campusName: "Dimataling Campus",
+        adminPassword: "admin123",
         maxPhotoUploads: 2,
         lateThresholdMinutes: 15,
         automaticSessions: true,
@@ -2338,6 +2427,7 @@ router.patch("/settings", async (req, res, next) => {
     const body = req.body as Partial<{
       schoolName: string;
       campusName: string;
+      adminPassword?: string;
       maxPhotoUploads: number;
       lateThresholdMinutes: number;
       automaticSessions: boolean;

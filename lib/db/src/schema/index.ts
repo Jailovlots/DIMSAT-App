@@ -151,6 +151,7 @@ export const systemSettingsTable = pgTable("system_settings", {
   id: serial("id").primaryKey(),
   schoolName: text("school_name").notNull().default("ZDSPGC – Dimataling Campus"),
   campusName: text("campus_name").notNull().default("Dimataling Campus"),
+  adminPassword: text("admin_password").notNull().default("admin123"),
   maxPhotoUploads: integer("max_photo_uploads").notNull().default(2),
   lateThresholdMinutes: integer("late_threshold_minutes").notNull().default(15),
   automaticSessions: boolean("automatic_sessions").notNull().default(true),

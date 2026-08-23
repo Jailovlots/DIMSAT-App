@@ -148,13 +148,13 @@ export function AttendanceProvider({ children }: { children: ReactNode }) {
    * Calls the dedicated /auth/student/lookup endpoint (read-only, no side effects).
    * Falls back to locally cached certifiedStudents when offline.
    */
-  const lookupStudent = useCallback(async (studentId: string, fullName: string) => {
+  const lookupStudent = useCallback(async (studentId: string, fullName: string, mode: 'register' | 'reset' | 'any' = 'register') => {
     const normalizedId = studentId.trim().toUpperCase();
     try {
       const res = await fetch(`${API_URL}/auth/student/lookup`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ studentId: normalizedId, fullName: fullName.trim() }),
+        body: JSON.stringify({ studentId: normalizedId, fullName: fullName.trim(), mode }),
       });
       const data = await res.json() as { error?: string; student?: CertifiedStudent };
       if (!res.ok) return { ok: false, error: data.error ?? 'Validation failed.' };

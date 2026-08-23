@@ -268,22 +268,16 @@ function ResetPasswordForm({ name, setName, studentId, setStudentId, password, s
   onSuccess: (msg: string) => void;
   colors: ReturnType<typeof useColors>;
 }) {
-  const { resetPassword, lookupStudent } = useAttendance();
+  const { resetPassword } = useAttendance();
 
   const submit = async () => {
     setError('');
+    if (!name.trim()) return setError('Full name is required.');
     if (!studentId.trim()) return setError('Student ID is required.');
-    if (!name.trim()) return setError('Full name is required to verify identity.');
     if (password.length < 6) return setError('New password must be at least 6 characters.');
     if (password !== confirm) return setError('Passwords do not match.');
 
     setBusy(true);
-    const lookup = await lookupStudent(studentId.trim(), name.trim());
-    if (!lookup.ok) {
-      setBusy(false);
-      return setError(lookup.error ?? 'Student verification failed.');
-    }
-
     const result = await resetPassword(studentId.trim(), name.trim(), password);
     setBusy(false);
     if (!result.ok) return setError(result.error ?? 'Failed to reset password.');
