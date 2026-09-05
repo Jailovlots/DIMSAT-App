@@ -1,7 +1,7 @@
 {
   "expo": {
     "name": "DIMSAT",
-    "slug": "student-attendance",
+    "slug": "workspace",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/attenda-icon.png",
@@ -16,7 +16,14 @@
     "ios": {
       "supportsTablet": false
     },
-    "android": {},
+    "android": {
+      "package": "com.tarttol.workspace"
+    },
+    "extra": {
+      "eas": {
+        "projectId": "8e4586c8-8114-48db-8166-d62467916339"
+      }
+    },
     "web": {
       "favicon": "./assets/images/attenda-icon.png"
     },

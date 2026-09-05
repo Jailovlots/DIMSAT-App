@@ -1,5 +1,5 @@
 // API base URL configuration
-// Deployed server: https://dimsat-app.onrender.com
+// Deployed server: https://dimsat-app-y0pq.onrender.com
 const getApiBase = () => {
   if (process.env.EXPO_PUBLIC_API_URL) {
     return process.env.EXPO_PUBLIC_API_URL;
@@ -10,9 +10,9 @@ const getApiBase = () => {
       return `${protocol}//${hostname}:5000`;
     }
     // Deployed environment on Render / production
-    return origin || 'https://dimsat-app.onrender.com';
+    return origin || 'https://dimsat-app-y0pq.onrender.com';
   }
-  return 'https://dimsat-app.onrender.com';
+  return 'https://dimsat-app-y0pq.onrender.com';
 };
 
 export const API_BASE_URL = getApiBase();

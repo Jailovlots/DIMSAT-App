@@ -1,10 +1,10 @@
 import { QueryClient, QueryClientProvider, useQueryClient } from '@tanstack/react-query';
 import {
   Activity, ArrowRight, BadgeCheck, BarChart3, Bell, CalendarDays, Camera, Check, CheckCircle2,
-  ChevronDown, ClipboardCheck, Clock3, Crop, Download, Eye, EyeOff, FileUp, Filter, GraduationCap,
-  Key, LayoutDashboard, Loader2, Lock, LogOut, Menu, MoreHorizontal, MoreVertical, Moon, Move, Pencil, Plus, Printer, QrCode,
-  RefreshCw, RotateCcw, RotateCw, ScanLine, Search, Settings2, ShieldCheck, SlidersHorizontal, Sun, Trash2, User, UserCheck, UserPlus,
-  Users, Volume2, X, Zap, ZoomIn, ZoomOut
+  ChevronDown, ClipboardCheck, Clock3, Download, Eye, EyeOff, FileUp, Filter, GraduationCap,
+  Key, LayoutDashboard, Loader2, Lock, LogOut, Menu, MoreHorizontal, MoreVertical, Moon, Pencil, Plus, Printer, QrCode,
+  RefreshCw, RotateCcw, ScanLine, Search, Settings2, ShieldCheck, SlidersHorizontal, Sun, Trash2, User, UserCheck, UserPlus,
+  Users, Volume2, X, Zap
 } from 'lucide-react';
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuGroup, DropdownMenuItem, DropdownMenuLabel,
@@ -366,11 +366,10 @@ function AppShell({ children }: { children: React.ReactNode }) {
                 key={item.href}
                 href={item.href}
                 onClick={() => setMobileOpen(false)}
-                className={`group flex items-center gap-3 rounded-lg px-3 py-2 text-[13px] font-bold transition-all ${
-                  active
+                className={`group flex items-center gap-3 rounded-lg px-3 py-2 text-[13px] font-bold transition-all ${active
                     ? 'bg-white/10 text-white shadow-sm ring-1 ring-white/20'
                     : 'text-slate-300 hover:bg-white/5 hover:text-white'
-                }`}
+                  }`}
               >
                 <Icon className={`size-4 shrink-0 transition-transform group-hover:scale-110 ${active ? iconColor : 'text-slate-300 group-hover:text-white'}`} />
                 <span className="truncate">{item.label}</span>
@@ -1133,372 +1132,6 @@ function Students() {
   );
 }
 
-function ImageCropperModal({
-  imageSrc,
-  studentName,
-  onApply,
-  onClose,
-}: {
-  imageSrc: string;
-  studentName: string;
-  onApply: (croppedDataUrl: string) => void;
-  onClose: () => void;
-}) {
-  const canvasRef = useRef<HTMLCanvasElement | null>(null);
-  const [scale, setScale] = useState(1);
-  const [rotation, setRotation] = useState(0); // 0, 90, 180, 270
-  const [offset, setOffset] = useState({ x: 0, y: 0 });
-  const [isDragging, setIsDragging] = useState(false);
-  const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
-  const [imageObj, setImageObj] = useState<HTMLImageElement | null>(null);
-  const [maskType, setMaskType] = useState<'circle' | 'square'>('circle');
-
-  // Load image
-  useEffect(() => {
-    const img = new Image();
-    img.crossOrigin = 'anonymous';
-    img.onload = () => {
-      setImageObj(img);
-      const baseScale = Math.max(300 / img.width, 300 / img.height);
-      setScale(Math.max(1, Number(baseScale.toFixed(2))));
-      setOffset({ x: 0, y: 0 });
-      setRotation(0);
-    };
-    img.src = imageSrc;
-  }, [imageSrc]);
-
-  // Render on preview canvas
-  useEffect(() => {
-    if (!imageObj || !canvasRef.current) return;
-    const canvas = canvasRef.current;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
-
-    const size = 320;
-    canvas.width = size;
-    canvas.height = size;
-
-    // Clear background
-    ctx.clearRect(0, 0, size, size);
-    ctx.fillStyle = '#090d16';
-    ctx.fillRect(0, 0, size, size);
-
-    // Save transform state for image
-    ctx.save();
-    ctx.translate(size / 2 + offset.x, size / 2 + offset.y);
-    ctx.rotate((rotation * Math.PI) / 180);
-    ctx.scale(scale, scale);
-
-    ctx.drawImage(
-      imageObj,
-      -imageObj.width / 2,
-      -imageObj.height / 2,
-      imageObj.width,
-      imageObj.height
-    );
-    ctx.restore();
-
-    // Darkened Vignette Overlay
-    ctx.save();
-    const radius = size / 2 - 12;
-    ctx.beginPath();
-    if (maskType === 'circle') {
-      ctx.arc(size / 2, size / 2, radius, 0, Math.PI * 2);
-    } else {
-      ctx.rect(12, 12, size - 24, size - 24);
-    }
-    ctx.rect(size, 0, -size, size);
-    ctx.fillStyle = 'rgba(7, 12, 22, 0.55)';
-    ctx.fill();
-
-    // Framing Border Guidelines
-    ctx.beginPath();
-    if (maskType === 'circle') {
-      ctx.arc(size / 2, size / 2, radius, 0, Math.PI * 2);
-    } else {
-      ctx.rect(12, 12, size - 24, size - 24);
-    }
-    ctx.strokeStyle = '#38bdf8';
-    ctx.lineWidth = 2;
-    ctx.setLineDash([6, 6]);
-    ctx.stroke();
-
-    // Subtle Crosshair for center framing
-    ctx.beginPath();
-    ctx.moveTo(size / 2 - 10, size / 2);
-    ctx.lineTo(size / 2 + 10, size / 2);
-    ctx.moveTo(size / 2, size / 2 - 10);
-    ctx.lineTo(size / 2, size / 2 + 10);
-    ctx.strokeStyle = 'rgba(255, 255, 255, 0.5)';
-    ctx.lineWidth = 1.5;
-    ctx.setLineDash([]);
-    ctx.stroke();
-    ctx.restore();
-  }, [imageObj, scale, rotation, offset, maskType]);
-
-  // Drag handlers
-  const handleMouseDown = (e: React.MouseEvent<HTMLCanvasElement>) => {
-    setIsDragging(true);
-    setDragStart({ x: e.clientX - offset.x, y: e.clientY - offset.y });
-  };
-
-  const handleMouseMove = (e: React.MouseEvent<HTMLCanvasElement>) => {
-    if (!isDragging) return;
-    setOffset({
-      x: e.clientX - dragStart.x,
-      y: e.clientY - dragStart.y,
-    });
-  };
-
-  const handleMouseUp = () => setIsDragging(false);
-
-  // Touch handlers
-  const handleTouchStart = (e: React.TouchEvent<HTMLCanvasElement>) => {
-    if (e.touches.length === 1) {
-      setIsDragging(true);
-      setDragStart({
-        x: e.touches[0].clientX - offset.x,
-        y: e.touches[0].clientY - offset.y,
-      });
-    }
-  };
-
-  const handleTouchMove = (e: React.TouchEvent<HTMLCanvasElement>) => {
-    if (!isDragging || e.touches.length !== 1) return;
-    setOffset({
-      x: e.touches[0].clientX - dragStart.x,
-      y: e.touches[0].clientY - dragStart.y,
-    });
-  };
-
-  const handleTouchEnd = () => setIsDragging(false);
-
-  // Mouse wheel zoom
-  const handleWheel = (e: React.WheelEvent<HTMLCanvasElement>) => {
-    e.preventDefault();
-    const zoomDelta = e.deltaY < 0 ? 0.08 : -0.08;
-    setScale((prev) => Math.min(4, Math.max(0.4, Number((prev + zoomDelta).toFixed(2)))));
-  };
-
-  // Rotate 90 degrees clockwise
-  const handleRotate = () => {
-    setRotation((prev) => (prev + 90) % 360);
-  };
-
-  // Reset to default fit
-  const handleReset = () => {
-    if (!imageObj) return;
-    const baseScale = Math.max(300 / imageObj.width, 300 / imageObj.height);
-    setScale(Math.max(1, Number(baseScale.toFixed(2))));
-    setOffset({ x: 0, y: 0 });
-    setRotation(0);
-  };
-
-  // Pan step helper
-  const handlePan = (dx: number, dy: number) => {
-    setOffset((prev) => ({ x: prev.x + dx, y: prev.y + dy }));
-  };
-
-  // Render high-res final export (512x512)
-  const handleApply = () => {
-    if (!imageObj) return;
-    const outCanvas = document.createElement('canvas');
-    const outSize = 512;
-    outCanvas.width = outSize;
-    outCanvas.height = outSize;
-    const outCtx = outCanvas.getContext('2d');
-    if (!outCtx) return;
-
-    // Neutral white background
-    outCtx.fillStyle = '#ffffff';
-    outCtx.fillRect(0, 0, outSize, outSize);
-
-    outCtx.save();
-    // Scale factor from preview (320px) to export (512px)
-    const factor = outSize / 320;
-    outCtx.translate(outSize / 2 + offset.x * factor, outSize / 2 + offset.y * factor);
-    outCtx.rotate((rotation * Math.PI) / 180);
-    outCtx.scale(scale * factor, scale * factor);
-
-    outCtx.drawImage(
-      imageObj,
-      -imageObj.width / 2,
-      -imageObj.height / 2,
-      imageObj.width,
-      imageObj.height
-    );
-    outCtx.restore();
-
-    const dataUrl = outCanvas.toDataURL('image/jpeg', 0.92);
-    onApply(dataUrl);
-    onClose();
-  };
-
-  return (
-    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/75 p-4 backdrop-blur-md animate-in fade-in duration-200">
-      <div className="relative w-full max-w-lg overflow-hidden rounded-2xl border border-border bg-card p-6 shadow-2xl rise-in">
-        {/* Header */}
-        <div className="flex items-center justify-between border-b border-border pb-3 mb-4">
-          <div className="flex items-center gap-2.5">
-            <div className="grid size-8 place-items-center rounded-lg bg-primary/15 text-primary">
-              <Crop className="size-4" />
-            </div>
-            <div>
-              <h2 className="text-base font-black text-foreground">Crop &amp; Expand Photo</h2>
-              <div className="font-mono text-[11px] text-muted-foreground">{studentName}</div>
-            </div>
-          </div>
-          <button
-            onClick={onClose}
-            className="rounded-lg p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
-          >
-            <X className="size-4" />
-          </button>
-        </div>
-
-        {/* Canvas Viewport Area */}
-        <div className="flex flex-col items-center">
-          <div className="relative overflow-hidden rounded-xl border-2 border-border shadow-inner bg-slate-950">
-            <canvas
-              ref={canvasRef}
-              onMouseDown={handleMouseDown}
-              onMouseMove={handleMouseMove}
-              onMouseUp={handleMouseUp}
-              onMouseLeave={handleMouseUp}
-              onTouchStart={handleTouchStart}
-              onTouchMove={handleTouchMove}
-              onTouchEnd={handleTouchEnd}
-              onWheel={handleWheel}
-              className={`block select-none ${isDragging ? 'cursor-grabbing' : 'cursor-grab'}`}
-              style={{ width: 320, height: 320 }}
-            />
-            {/* Guide tooltip overlay */}
-            <div className="pointer-events-none absolute bottom-2 inset-x-2 text-center">
-              <span className="rounded-full bg-black/60 px-3 py-1 font-mono text-[10px] font-medium text-slate-200 backdrop-blur-sm shadow">
-                Drag to reposition · Scroll or slider to zoom
-              </span>
-            </div>
-          </div>
-
-          {/* Quick pan directional buttons */}
-          <div className="mt-3 flex items-center gap-1 text-muted-foreground">
-            <span className="text-[10px] font-mono uppercase font-bold mr-1">Pan:</span>
-            <button
-              type="button"
-              onClick={() => handlePan(0, 15)}
-              title="Pan Down"
-              className="size-6 rounded border border-border bg-background flex items-center justify-center hover:bg-muted text-xs font-bold"
-            >
-              ↓
-            </button>
-            <button
-              type="button"
-              onClick={() => handlePan(0, -15)}
-              title="Pan Up"
-              className="size-6 rounded border border-border bg-background flex items-center justify-center hover:bg-muted text-xs font-bold"
-            >
-              ↑
-            </button>
-            <button
-              type="button"
-              onClick={() => handlePan(15, 0)}
-              title="Pan Right"
-              className="size-6 rounded border border-border bg-background flex items-center justify-center hover:bg-muted text-xs font-bold"
-            >
-              →
-            </button>
-            <button
-              type="button"
-              onClick={() => handlePan(-15, 0)}
-              title="Pan Left"
-              className="size-6 rounded border border-border bg-background flex items-center justify-center hover:bg-muted text-xs font-bold"
-            >
-              ←
-            </button>
-            <div className="h-4 w-px bg-border mx-2" />
-            <button
-              type="button"
-              onClick={() => setMaskType((m) => (m === 'circle' ? 'square' : 'circle'))}
-              className="rounded border border-border bg-background px-2 py-0.5 text-[10px] font-bold hover:bg-muted"
-            >
-              {maskType === 'circle' ? 'Circle Guide' : 'Square Guide'}
-            </button>
-          </div>
-        </div>
-
-        {/* Zoom & Adjustment Controls */}
-        <div className="mt-4 grid gap-3 bg-muted/25 rounded-xl border border-border/80 p-3.5">
-          {/* Zoom Slider */}
-          <div className="flex items-center gap-3">
-            <button
-              type="button"
-              onClick={() => setScale((s) => Math.max(0.4, Number((s - 0.15).toFixed(2))))}
-              className="size-8 rounded-lg border border-border bg-background flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-muted shadow-sm transition-colors"
-              title="Zoom Out"
-            >
-              <ZoomOut className="size-4" />
-            </button>
-            <div className="flex-1">
-              <div className="flex justify-between text-[11px] font-bold text-muted-foreground mb-1">
-                <span>Zoom / Expand</span>
-                <span className="font-mono">{Math.round(scale * 100)}%</span>
-              </div>
-              <input
-                type="range"
-                min="0.4"
-                max="4.0"
-                step="0.05"
-                value={scale}
-                onChange={(e) => setScale(Number(e.target.value))}
-                className="h-2 w-full cursor-pointer accent-primary"
-              />
-            </div>
-            <button
-              type="button"
-              onClick={() => setScale((s) => Math.min(4, Number((s + 0.15).toFixed(2))))}
-              className="size-8 rounded-lg border border-border bg-background flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-muted shadow-sm transition-colors"
-              title="Zoom In"
-            >
-              <ZoomIn className="size-4" />
-            </button>
-          </div>
-
-          {/* Auxiliary Tool Buttons */}
-          <div className="flex items-center justify-between pt-1 border-t border-border/60">
-            <button
-              type="button"
-              onClick={handleRotate}
-              className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-background px-3 py-1.5 text-xs font-bold hover:bg-muted transition-colors shadow-sm"
-            >
-              <RotateCw className="size-3.5 text-primary" />
-              <span>Rotate 90°</span>
-            </button>
-            <button
-              type="button"
-              onClick={handleReset}
-              className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-background px-3 py-1.5 text-xs font-bold text-muted-foreground hover:bg-muted hover:text-foreground transition-colors shadow-sm"
-            >
-              <RotateCcw className="size-3.5" />
-              <span>Fit / Reset</span>
-            </button>
-          </div>
-        </div>
-
-        {/* Footer Actions */}
-        <div className="mt-5 flex items-center justify-end gap-2.5 border-t border-border pt-4">
-          <Button variant="ghost" onClick={onClose}>
-            Cancel
-          </Button>
-          <Button onClick={handleApply} data-testid="button-apply-photo-crop">
-            <Check className="size-4" />
-            <span>Apply Cropped Photo</span>
-          </Button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
 function EditStudentDialog({ student, onClose, onSuccess }: { student: Student; onClose: () => void; onSuccess: () => void }) {
   const { toast } = useToast();
   const [fullName, setFullName] = useState(student.fullName);
@@ -1507,10 +1140,6 @@ function EditStudentDialog({ student, onClose, onSuccess }: { student: Student; 
   const [sex, setSex] = useState(student.sex ?? 'Female');
   const [profilePhoto, setProfilePhoto] = useState<string | null>(student.profilePhoto ?? null);
   const [isSaving, setIsSaving] = useState(false);
-
-  // Photo Cropper Modal state
-  const [showCropModal, setShowCropModal] = useState(false);
-  const [cropSourceUrl, setCropSourceUrl] = useState<string | null>(null);
 
   // Password reset state
   const [showPasswordSection, setShowPasswordSection] = useState(false);
@@ -1526,8 +1155,7 @@ function EditStudentDialog({ student, onClose, onSuccess }: { student: Student; 
     const reader = new FileReader();
     reader.onloadend = () => {
       if (typeof reader.result === 'string') {
-        setCropSourceUrl(reader.result);
-        setShowCropModal(true);
+        setProfilePhoto(reader.result);
       }
     };
     reader.readAsDataURL(file);
@@ -1611,28 +1239,12 @@ function EditStudentDialog({ student, onClose, onSuccess }: { student: Student; 
         </div>
 
         <div className="grid gap-4">
-          {/* Photo Preview, Upload & Crop Controls */}
+          {/* Photo Preview and Upload */}
           <div className="flex items-center gap-4 p-3 rounded-xl border border-border bg-muted/20">
-            <div
-              className={`relative group shrink-0 ${profilePhoto ? 'cursor-pointer' : ''}`}
-              onClick={() => {
-                if (profilePhoto) {
-                  setCropSourceUrl(profilePhoto);
-                  setShowCropModal(true);
-                }
-              }}
-              title={profilePhoto ? 'Click to Crop or Expand Photo' : undefined}
-            >
-              <StudentAvatar src={profilePhoto} name={fullName || student.studentId} size="md" className="size-16 transition-transform group-hover:scale-105" />
-              {profilePhoto && (
-                <div className="absolute inset-0 rounded-full bg-black/45 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity">
-                  <Crop className="size-5 text-white drop-shadow" />
-                </div>
-              )}
-            </div>
-            <div className="flex-1 min-w-0">
+            <StudentAvatar src={profilePhoto} name={fullName || student.studentId} size="md" className="size-16" />
+            <div className="flex-1">
               <label className="text-xs font-bold text-foreground block mb-1">Profile Photo</label>
-              <div className="flex items-center gap-2 flex-wrap">
+              <div className="flex items-center gap-2">
                 <label className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-background px-3 py-1.5 text-xs font-bold text-foreground cursor-pointer hover:bg-muted transition-colors">
                   <Camera className="size-3.5 text-primary" />
                   <span>{profilePhoto ? 'Change photo' : 'Upload photo'}</span>
@@ -1641,28 +1253,13 @@ function EditStudentDialog({ student, onClose, onSuccess }: { student: Student; 
                 {profilePhoto && (
                   <button
                     type="button"
-                    data-testid="button-crop-student-photo"
-                    onClick={() => {
-                      setCropSourceUrl(profilePhoto);
-                      setShowCropModal(true);
-                    }}
-                    className="inline-flex items-center gap-1.5 rounded-lg border border-primary/30 bg-primary/10 px-3 py-1.5 text-xs font-bold text-primary hover:bg-primary/20 transition-colors"
-                  >
-                    <Crop className="size-3.5" />
-                    <span>Crop &amp; Expand</span>
-                  </button>
-                )}
-                {profilePhoto && (
-                  <button
-                    type="button"
                     onClick={() => setProfilePhoto(null)}
-                    className="text-xs text-red-500 font-semibold hover:underline ml-0.5"
+                    className="text-xs text-red-500 font-semibold hover:underline"
                   >
                     Remove
                   </button>
                 )}
               </div>
-              <p className="mt-1 text-[10px] text-muted-foreground">Click "Crop &amp; Expand" to zoom, frame, and rotate for clear verification.</p>
             </div>
           </div>
 
@@ -1767,13 +1364,12 @@ function EditStudentDialog({ student, onClose, onSuccess }: { student: Student; 
                       value={confirmPassword}
                       onChange={e => setConfirmPassword(e.target.value)}
                       placeholder="Re-enter new password"
-                      className={`h-10 w-full rounded-lg border bg-background px-3 pr-10 text-sm font-medium text-foreground outline-none transition-colors focus:ring-2 focus:ring-primary/15 ${
-                        confirmPassword && confirmPassword !== newPassword
+                      className={`h-10 w-full rounded-lg border bg-background px-3 pr-10 text-sm font-medium text-foreground outline-none transition-colors focus:ring-2 focus:ring-primary/15 ${confirmPassword && confirmPassword !== newPassword
                           ? 'border-red-400 focus:border-red-400 focus:ring-red-400/15'
                           : confirmPassword && confirmPassword === newPassword
-                          ? 'border-emerald-400 focus:border-emerald-400 focus:ring-emerald-400/15'
-                          : 'border-input focus:border-primary'
-                      }`}
+                            ? 'border-emerald-400 focus:border-emerald-400 focus:ring-emerald-400/15'
+                            : 'border-input focus:border-primary'
+                        }`}
                     />
                     <button
                       type="button"
@@ -1813,19 +1409,6 @@ function EditStudentDialog({ student, onClose, onSuccess }: { student: Student; 
           </Button>
         </div>
       </div>
-
-      {/* Interactive Photo Cropper & Expander Modal */}
-      {showCropModal && cropSourceUrl && (
-        <ImageCropperModal
-          imageSrc={cropSourceUrl}
-          studentName={fullName || student.studentId}
-          onApply={(croppedUrl) => {
-            setProfilePhoto(croppedUrl);
-            setShowCropModal(false);
-          }}
-          onClose={() => setShowCropModal(false)}
-        />
-      )}
     </div>
   );
 }
