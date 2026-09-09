@@ -16,4 +16,5 @@ export interface Student {
   status: string;
   /** @nullable */
   profilePhoto: string | null;
+  profileUploadCount?: number;
 }

@@ -649,6 +649,17 @@ function StudentQrPassModal({ user, onClose }: { user: StaffUser; onClose: () =>
   const studentId = user.officerId || '2026-00892';
   const qrData = `ZDSPGC_PERMANENT_QR_01:${studentId}`;
 
+  // QR size options — label: display, px: rendered pixel size
+  const QR_SIZES = [
+    { label: 'XS', px: 60 },
+    { label: 'S',  px: 72 },
+    { label: 'M',  px: 84 },
+    { label: 'L',  px: 100 },
+    { label: 'XL', px: 116 },
+    { label: '2X', px: 132 },
+  ];
+  const [qrSizeIdx, setQrSizeIdx] = useState(2); // default M (84px)
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/65 backdrop-blur-sm p-4 animate-in fade-in duration-200">
       <div className="relative w-full max-w-sm overflow-hidden rounded-2xl border border-primary/30 bg-card p-5 shadow-2xl rise-in">
@@ -702,14 +713,34 @@ function StudentQrPassModal({ user, onClose }: { user: StaffUser; onClose: () =>
               </div>
             </div>
 
-            <div className="rounded-lg border-2 border-slate-900 bg-white p-1 shrink-0 shadow-sm">
-              <QRCodeSVG value={qrData} size={84} level="M" />
+            <div className="rounded-lg border-2 border-slate-900 bg-white p-1 shrink-0 shadow-sm" style={{ width: QR_SIZES[qrSizeIdx].px + 10, height: QR_SIZES[qrSizeIdx].px + 10, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <QRCodeSVG value={qrData} size={QR_SIZES[qrSizeIdx].px} level="M" />
             </div>
           </div>
 
           <div className="border-t border-slate-200 pt-1 flex items-center justify-between font-mono text-[6.5px] text-slate-500 uppercase tracking-wider">
             <span>OFFICIAL STUDENT ATTENDANCE PASS</span>
             <span>REUSABLE ALL SEMESTER</span>
+          </div>
+        </div>
+
+        {/* QR Size Picker */}
+        <div className="flex flex-col items-center gap-1.5 mb-1">
+          <div className="text-[9px] font-mono font-extrabold uppercase tracking-widest text-muted-foreground">QR Code Size</div>
+          <div className="flex gap-1.5">
+            {QR_SIZES.map((s, i) => (
+              <button
+                key={s.label}
+                onClick={() => setQrSizeIdx(i)}
+                className={`h-7 w-9 rounded-lg border text-[10px] font-extrabold transition-colors ${
+                  i === qrSizeIdx
+                    ? 'bg-primary text-primary-foreground border-primary'
+                    : 'bg-muted text-foreground border-border hover:border-primary/50'
+                }`}
+              >
+                {s.label}
+              </button>
+            ))}
           </div>
         </div>
 
@@ -1758,6 +1789,22 @@ function Events() {
                   </div>
                   <h2 className="mt-2 text-lg font-extrabold tracking-[-.04em]">{e.name}</h2>
                   <p className="mt-1 text-xs text-muted-foreground">{e.description}</p>
+                  <div className="mt-2.5 flex items-center gap-1.5 flex-wrap">
+                    <span className="font-mono text-[9px] uppercase tracking-wider text-muted-foreground">Access:</span>
+                    {e.allowedPrograms && e.allowedPrograms !== 'ALL' ? (
+                      e.allowedPrograms.split(',').map((p) => (
+                        <span key={p} className="inline-flex items-center gap-1 rounded-md bg-amber-500/10 border border-amber-500/20 px-2 py-0.5 text-[10px] font-bold text-amber-700 dark:text-amber-400">
+                          <GraduationCap className="size-3" />
+                          {p.trim()} Only
+                        </span>
+                      ))
+                    ) : (
+                      <span className="inline-flex items-center gap-1 rounded-md bg-emerald-500/10 border border-emerald-500/20 px-2 py-0.5 text-[10px] font-bold text-emerald-700 dark:text-emerald-400">
+                        <ShieldCheck className="size-3" />
+                        All Programs
+                      </span>
+                    )}
+                  </div>
                 </div>
                 <div className="flex flex-col items-end gap-1.5">
                   <Badge tone={e.status === 'active' ? 'success' : e.status === 'draft' ? 'warning' : 'neutral'}>{e.status}</Badge>
@@ -1868,12 +1915,110 @@ function Events() {
   );
 }
 
+const CAMPUS_PROGRAMS = ['BSIS', 'BPED', 'ACT-AD'];
+
+function ProgramSelector({
+  value,
+  onChange,
+}: {
+  value: string;
+  onChange: (val: string) => void;
+}) {
+  const isAll = !value || value.trim() === '' || value.trim().toUpperCase() === 'ALL';
+  const selectedList = isAll
+    ? []
+    : value.split(',').map(p => p.trim().toUpperCase()).filter(Boolean);
+
+  const toggleProgram = (prog: string) => {
+    const upper = prog.toUpperCase();
+    if (isAll) {
+      onChange(upper);
+      return;
+    }
+    let updated: string[];
+    if (selectedList.includes(upper)) {
+      updated = selectedList.filter(p => p !== upper);
+      if (updated.length === 0) {
+        onChange('ALL');
+        return;
+      }
+    } else {
+      updated = [...selectedList, upper];
+    }
+    if (CAMPUS_PROGRAMS.every(p => updated.includes(p))) {
+      onChange('ALL');
+    } else {
+      onChange(updated.join(','));
+    }
+  };
+
+  return (
+    <div className="rounded-xl border border-border bg-muted/30 p-3.5 space-y-2">
+      <div className="flex items-center justify-between flex-wrap gap-1">
+        <label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
+          <GraduationCap className="size-3.5 text-primary" />
+          Allowed Program Access (QR Restrictions)
+        </label>
+        <span className="text-[10px] font-bold font-mono px-2 py-0.5 rounded-full bg-primary/10 text-primary">
+          {isAll ? 'Campus-Wide (ALL)' : `Restricted: ${selectedList.join(', ')}`}
+        </span>
+      </div>
+
+      <div className="flex flex-wrap gap-2 pt-0.5">
+        <button
+          type="button"
+          onClick={() => onChange('ALL')}
+          className={`flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-bold transition-all ${
+            isAll
+              ? 'border-primary bg-primary text-primary-foreground shadow-sm'
+              : 'border-input bg-background text-muted-foreground hover:bg-muted hover:text-foreground'
+          }`}
+        >
+          {isAll && <Check className="size-3.5" />}
+          All Programs (Campus-wide)
+        </button>
+
+        {CAMPUS_PROGRAMS.map(prog => {
+          const selected = !isAll && selectedList.includes(prog);
+          return (
+            <button
+              key={prog}
+              type="button"
+              onClick={() => toggleProgram(prog)}
+              className={`flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-bold transition-all ${
+                selected
+                  ? 'border-primary bg-primary/15 text-primary shadow-sm ring-1 ring-primary'
+                  : 'border-input bg-background text-muted-foreground hover:bg-muted hover:text-foreground'
+              }`}
+            >
+              {selected && <Check className="size-3.5" />}
+              {prog}
+            </button>
+          );
+        })}
+      </div>
+
+      <p className="text-[11px] text-muted-foreground leading-snug">
+        {isAll ? (
+          'Students from all departments/programs (BSIS, BPED, ACT-AD) are permitted to scan for this event.'
+        ) : (
+          <>
+            <span className="font-bold text-amber-600 dark:text-amber-400">Strict Enforcement:</span> Only students registered under{' '}
+            <strong className="text-foreground">{selectedList.join(' or ')}</strong> can scan their QR code. Scans for students from other programs will be rejected by the system.
+          </>
+        )}
+      </p>
+    </div>
+  );
+}
+
 function EditEventDialog({ event, close, refetch }: { event: Event; close: () => void; refetch: () => void }) {
   const [name, setName] = useState(event.name);
   const [date, setDate] = useState(event.eventDate);
   const [venue, setVenue] = useState(event.venue);
   const [description, setDescription] = useState(event.description);
   const [status, setStatus] = useState(event.status || 'active');
+  const [allowedPrograms, setAllowedPrograms] = useState(event.allowedPrograms || 'ALL');
   const [sessions, setSessions] = useState<SessionDraft[]>(
     event.sessions?.map(s => ({
       id: s.id,
@@ -1897,7 +2042,7 @@ function EditEventDialog({ event, close, refetch }: { event: Event; close: () =>
       const res = await fetch(`/api/events/${event.id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name, description, eventDate: date, venue, status, sessions }),
+        body: JSON.stringify({ name, description, eventDate: date, venue, status, allowedPrograms, sessions }),
       });
       if (res.ok) {
         refetch();
@@ -1932,6 +2077,9 @@ function EditEventDialog({ event, close, refetch }: { event: Event; close: () =>
             <Field label="Event Date" value={date} onChange={setDate} type="date" />
           </div>
           <Field label="Description" value={description} onChange={setDescription} placeholder="Brief event description" />
+
+          {/* Allowed Program Access */}
+          <ProgramSelector value={allowedPrograms} onChange={setAllowedPrograms} />
 
           <div>
             <label className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">Event Status</label>
@@ -2104,6 +2252,17 @@ function PrintStudentQrCardsModal({ event, token, onClose }: { event: Event; tok
   const [yearFilter, setYearFilter] = useState('all');
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
 
+  // QR size options for printed cards
+  const QR_SIZES = [
+    { label: 'XS', px: 60 },
+    { label: 'S',  px: 72 },
+    { label: 'M',  px: 84 },
+    { label: 'L',  px: 100 },
+    { label: 'XL', px: 116 },
+    { label: '2X', px: 132 },
+  ];
+  const [qrSizeIdx, setQrSizeIdx] = useState(1); // default S (72px) — fits the physical card
+
   // Auto-select all students by default once loaded so user can print all immediately
   useEffect(() => {
     if (students.length > 0 && selectedIds.size === 0) {
@@ -2251,7 +2410,7 @@ function PrintStudentQrCardsModal({ event, token, onClose }: { event: Event; tok
                 </div>
                 {studentsToPrint.length > 0 && (
                   <div className="mt-3 text-[10px] text-muted-foreground font-mono font-bold">
-                    ≈ {Math.ceil(studentsToPrint.length / 10)} page{Math.ceil(studentsToPrint.length / 10) !== 1 ? 's' : ''} (10 cards / A4 sheet)
+                    ≈ {Math.ceil(studentsToPrint.length / 8)} page{Math.ceil(studentsToPrint.length / 8) !== 1 ? 's' : ''} (8 cards / sheet · A4 / Short Bond)
                   </div>
                 )}
               </div>
@@ -2260,25 +2419,33 @@ function PrintStudentQrCardsModal({ event, token, onClose }: { event: Event; tok
               <div className="rounded-xl border border-dashed border-border bg-muted/20 p-3 flex flex-col items-center gap-2">
                 <div className="text-[9px] font-mono font-bold uppercase tracking-widest text-muted-foreground">Card Preview</div>
                 {studentsToPrint.length > 0 ? (
-                  <div className="w-full max-w-[280px] rounded-xl border-2 border-slate-900 bg-white p-3 shadow-lg flex flex-col justify-between text-slate-900" style={{ aspectRatio: '3.375/2.125' }}>
-                    <div className="flex items-center justify-between border-b-2 border-slate-900 pb-1.5">
+                  <div className="w-full max-w-[300px] rounded-xl border-2 border-slate-900 bg-white p-3.5 shadow-lg flex flex-col justify-between text-slate-900" style={{ aspectRatio: '3.85/2.42' }}>
+                    {/* Header ribbon — identical to print */}
+                    <div className="flex items-center justify-between border-b border-slate-900 pb-1">
                       <div>
                         <div className="font-mono text-[7px] font-black uppercase tracking-widest text-emerald-700">ZDSPGC – DIMATALING CAMPUS</div>
                         <div className="text-[9px] font-black tracking-tight uppercase text-slate-900">DIMSAT SID</div>
                       </div>
                       <span className="rounded bg-slate-900 px-1.5 py-0.5 font-mono text-[7px] font-black text-white uppercase">SEMESTER PASS</span>
                     </div>
-                    <div className="flex items-center justify-between gap-2 py-1">
+                    {/* Body — identical to print */}
+                    <div className="my-auto flex items-center justify-between gap-2">
                       <div className="min-w-0 flex-1">
-                        <div className="font-mono text-[6px] text-slate-400 uppercase">STUDENT NAME</div>
-                        <div className="text-[9px] font-black uppercase truncate">{studentsToPrint[0].fullName}</div>
-                        <div className="mt-1 font-mono text-[7px] text-slate-500">{studentsToPrint[0].studentId} · {studentsToPrint[0].program} · Yr {studentsToPrint[0].yearLevel}</div>
+                        <div className="font-mono text-[6.5px] font-bold text-slate-500 uppercase">STUDENT NAME</div>
+                        <div className="text-[10.5px] font-black uppercase tracking-tight truncate leading-tight">{studentsToPrint[0].fullName}</div>
+                        <div className="mt-1.5 grid grid-cols-2 gap-x-1.5 gap-y-0.5 font-mono text-[7px]">
+                          <div><span className="text-slate-400">ID:</span> <strong className="text-slate-900">{studentsToPrint[0].studentId}</strong></div>
+                          <div><span className="text-slate-400">YR:</span> <strong className="text-slate-900">Lvl {studentsToPrint[0].yearLevel}</strong></div>
+                          <div><span className="text-slate-400">PROG:</span> <strong className="text-slate-900">{studentsToPrint[0].program}</strong></div>
+                          <div><span className="text-slate-400">SEX:</span> <strong className="text-slate-900">{studentsToPrint[0].sex}</strong></div>
+                        </div>
                       </div>
-                      <div className="rounded border border-slate-900 bg-white p-0.5 shrink-0">
-                        <QRCodeSVG value={`ZDSPGC_PERMANENT_QR_01:${studentsToPrint[0].studentId}`} size={76} level="M" />
+                      <div className="rounded-md border border-slate-900 bg-white p-1 shrink-0" style={{ width: QR_SIZES[qrSizeIdx].px + 6, height: QR_SIZES[qrSizeIdx].px + 6, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                        <QRCodeSVG value={`ZDSPGC_PERMANENT_QR_01:${studentsToPrint[0].studentId}`} size={QR_SIZES[qrSizeIdx].px} level="M" />
                       </div>
                     </div>
-                    <div className="border-t border-slate-200 pt-1 flex items-center justify-between font-mono text-[6px] text-slate-400 uppercase">
+                    {/* Footer — identical to print */}
+                    <div className="border-t border-slate-200 pt-1 flex items-center justify-between font-mono text-[5.5px] text-slate-500 uppercase tracking-wider">
                       <span>OFFICIAL STUDENT ATTENDANCE PASS</span>
                       <span>REUSABLE ALL SEMESTER</span>
                     </div>
@@ -2286,6 +2453,26 @@ function PrintStudentQrCardsModal({ event, token, onClose }: { event: Event; tok
                 ) : (
                   <div className="text-xs text-muted-foreground text-center py-4">No cards selected yet.<br />Use checkboxes or quick-select chips above.</div>
                 )}
+              </div>
+
+              {/* QR Size Picker for Print */}
+              <div className="rounded-xl border border-border bg-muted/20 p-3 flex flex-col items-center gap-2">
+                <div className="text-[9px] font-mono font-bold uppercase tracking-widest text-muted-foreground">QR Code Size (applies to print)</div>
+                <div className="flex gap-1.5 flex-wrap justify-center">
+                  {QR_SIZES.map((s, i) => (
+                    <button
+                      key={s.label}
+                      onClick={() => setQrSizeIdx(i)}
+                      className={`h-7 w-9 rounded-lg border text-[10px] font-extrabold transition-colors ${
+                        i === qrSizeIdx
+                          ? 'bg-primary text-primary-foreground border-primary'
+                          : 'bg-muted text-foreground border-border hover:border-primary/50'
+                      }`}
+                    >
+                      {s.label}
+                    </button>
+                  ))}
+                </div>
               </div>
 
               {/* Action Buttons */}
@@ -2296,7 +2483,7 @@ function PrintStudentQrCardsModal({ event, token, onClose }: { event: Event; tok
                   className="w-full h-11 text-sm font-extrabold shadow-md"
                 >
                   <Printer className="size-4" />
-                  Print {studentsToPrint.length > 0 ? `All ${studentsToPrint.length} Cards (${Math.ceil(studentsToPrint.length / 10)} A4 Pages)` : 'Selected Cards'}
+                  Print {studentsToPrint.length > 0 ? `All ${studentsToPrint.length} Cards (${Math.ceil(studentsToPrint.length / 8)} Pages)` : 'Selected Cards'}
                 </Button>
                 <Button variant="ghost" onClick={onClose} className="w-full">Cancel</Button>
               </div>
@@ -2305,12 +2492,12 @@ function PrintStudentQrCardsModal({ event, token, onClose }: { event: Event; tok
         </div>
       </div>
 
-      {/* PRINT-ONLY MULTI-PAGE CONTAINER (10 cards per A4 sheet — 2 cols × 5 rows) */}
+      {/* PRINT-ONLY MULTI-PAGE CONTAINER (8 cards per sheet — 2 cols × 4 rows · A4 / Short Bond) */}
       <div className="hidden print:block print-student-cards-root">
         <style>{`
           @page {
-            size: A4 portrait;
-            margin: 0.18in 0.18in;
+            size: auto;
+            margin: 0.2in 0.18in;
           }
           @media print {
             html, body {
@@ -2339,12 +2526,11 @@ function PrintStudentQrCardsModal({ event, token, onClose }: { event: Event; tok
               break-after: page !important;
               page-break-inside: avoid !important;
               break-inside: avoid !important;
-              min-height: 11.3in !important;
               display: flex !important;
               flex-direction: column !important;
               justify-content: flex-start !important;
               box-sizing: border-box !important;
-              padding: 0.08in 0 !important;
+              padding: 0.1in 0 !important;
             }
             .print-page-wrapper:last-of-type {
               page-break-after: auto !important;
@@ -2352,19 +2538,19 @@ function PrintStudentQrCardsModal({ event, token, onClose }: { event: Event; tok
             }
             .print-grid {
               display: grid !important;
-              grid-template-columns: repeat(2, 3.8in) !important;
-              grid-auto-rows: 1.95in !important;
-              gap: 0.14in 0.2in !important;
+              grid-template-columns: repeat(2, 3.85in) !important;
+              grid-auto-rows: 2.42in !important;
+              gap: 0.14in 0.18in !important;
               justify-content: center !important;
               margin: 0 auto !important;
             }
             .id-card-print {
-              width: 3.8in !important;
-              height: 1.95in !important;
+              width: 3.85in !important;
+              height: 2.42in !important;
               box-sizing: border-box !important;
               border: 1.5pt solid #0f172a !important;
-              border-radius: 7pt !important;
-              padding: 0.08in 0.1in !important;
+              border-radius: 8pt !important;
+              padding: 0.1in 0.12in !important;
               background: white !important;
               page-break-inside: avoid !important;
               break-inside: avoid !important;
@@ -2378,8 +2564,8 @@ function PrintStudentQrCardsModal({ event, token, onClose }: { event: Event; tok
         <div>
           {(() => {
             const pages: Student[][] = [];
-            for (let i = 0; i < studentsToPrint.length; i += 10) {
-              pages.push(studentsToPrint.slice(i, i + 10));
+            for (let i = 0; i < studentsToPrint.length; i += 8) {
+              pages.push(studentsToPrint.slice(i, i + 8));
             }
             return pages.map((pageStudents, pIdx) => (
               <div key={pIdx} className="print-page-wrapper">
@@ -2389,19 +2575,19 @@ function PrintStudentQrCardsModal({ event, token, onClose }: { event: Event; tok
                       {/* Header ribbon */}
                       <div className="flex items-center justify-between border-b border-slate-900 pb-1">
                         <div>
-                          <div className="font-mono text-[6.5pt] font-black uppercase tracking-widest text-emerald-700">ZDSPGC – DIMATALING CAMPUS</div>
-                          <div className="text-[8.5pt] font-black tracking-tight uppercase text-slate-900 truncate max-w-[2.1in]">DIMSAT SID</div>
+                          <div className="font-mono text-[7pt] font-black uppercase tracking-widest text-emerald-700">ZDSPGC – DIMATALING CAMPUS</div>
+                          <div className="text-[9pt] font-black tracking-tight uppercase text-slate-900 truncate max-w-[2.2in]">DIMSAT SID</div>
                         </div>
-                        <span className="rounded bg-slate-900 px-1 py-0.5 font-mono text-[6.5pt] font-black text-white uppercase">SEMESTER PASS</span>
+                        <span className="rounded bg-slate-900 px-1.5 py-0.5 font-mono text-[7pt] font-black text-white uppercase">SEMESTER PASS</span>
                       </div>
 
                       {/* Body Content */}
-                      <div className="my-auto flex items-center justify-between gap-1.5">
+                      <div className="my-auto flex items-center justify-between gap-2">
                         <div className="min-w-0 flex-1">
-                          <div className="font-mono text-[6pt] font-bold text-slate-500 uppercase">STUDENT NAME</div>
-                          <h3 className="text-[9.5pt] font-black uppercase tracking-tight text-slate-900 truncate leading-tight">{s.fullName}</h3>
+                          <div className="font-mono text-[6.5pt] font-bold text-slate-500 uppercase">STUDENT NAME</div>
+                          <h3 className="text-[10.5pt] font-black uppercase tracking-tight text-slate-900 truncate leading-tight">{s.fullName}</h3>
 
-                          <div className="mt-1 grid grid-cols-2 gap-x-1 gap-y-0.5 font-mono text-[6.5pt]">
+                          <div className="mt-1.5 grid grid-cols-2 gap-x-2 gap-y-0.5 font-mono text-[7pt]">
                             <div>
                               <span className="text-slate-400">ID:</span> <strong className="text-slate-900">{s.studentId}</strong>
                             </div>
@@ -2418,13 +2604,13 @@ function PrintStudentQrCardsModal({ event, token, onClose }: { event: Event; tok
                         </div>
 
                         {/* QR Code */}
-                        <div className="rounded-md border border-slate-900 bg-white p-0.5 shrink-0">
-                          <QRCodeSVG value={`ZDSPGC_PERMANENT_QR_01:${s.studentId}`} size={72} level="M" />
+                        <div className="rounded-md border border-slate-900 bg-white p-1 shrink-0">
+                          <QRCodeSVG value={`ZDSPGC_PERMANENT_QR_01:${s.studentId}`} size={QR_SIZES[qrSizeIdx].px} level="M" />
                         </div>
                       </div>
 
                       {/* Footer Bar */}
-                      <div className="border-t border-slate-200 pt-0.5 flex items-center justify-between font-mono text-[5pt] text-slate-500 uppercase tracking-wider">
+                      <div className="border-t border-slate-200 pt-1 flex items-center justify-between font-mono text-[5.5pt] text-slate-500 uppercase tracking-wider">
                         <span>OFFICIAL STUDENT ATTENDANCE PASS</span>
                         <span>REUSABLE ALL SEMESTER</span>
                       </div>
@@ -2456,6 +2642,7 @@ function EventDialog({ close, create }: { close: () => void; create: ReturnType<
   const [date, setDate] = useState(() => new Date().toISOString().slice(0, 10));
   const [venue, setVenue] = useState('');
   const [description, setDescription] = useState('');
+  const [allowedPrograms, setAllowedPrograms] = useState('ALL');
   const [sessions, setSessions] = useState<SessionDraft[]>([
     { name: 'Morning IN', startTime: '07:00', endTime: '09:00', enabled: true },
     { name: 'Afternoon IN', startTime: '12:30', endTime: '14:00', enabled: true },
@@ -2477,6 +2664,7 @@ function EventDialog({ close, create }: { close: () => void; create: ReturnType<
           description,
           eventDate: date,
           venue,
+          allowedPrograms,
           startTime: sessions[0]?.startTime || '07:00',
           endTime: sessions[sessions.length - 1]?.endTime || '22:00',
           sessions: sessions.filter(s => s.name.trim()),
@@ -2504,6 +2692,9 @@ function EventDialog({ close, create }: { close: () => void; create: ReturnType<
           <Field label="Venue" value={venue} onChange={setVenue} placeholder="School Gymnasium" />
           <Field label="Event Date" value={date} onChange={setDate} type="date" />
           <Field label="Description" value={description} onChange={setDescription} placeholder="Brief event description" />
+
+          {/* Program Access Selection */}
+          <ProgramSelector value={allowedPrograms} onChange={setAllowedPrograms} />
 
           {/* Manual Sessions Builder */}
           <div className="mt-2">
@@ -3991,9 +4182,18 @@ function Scanner() {
 
         <div className="flex flex-wrap items-center gap-2.5">
           {activeEvent ? (
-            <div className="flex items-center gap-2 rounded-xl bg-emerald-500/10 px-3.5 py-2 border border-emerald-500/30">
+            <div className="flex flex-wrap items-center gap-2 rounded-xl bg-emerald-500/10 px-3.5 py-2 border border-emerald-500/30">
               <span className="size-2.5 rounded-full bg-emerald-500 animate-pulse" />
-              <span className="text-xs font-bold text-emerald-800 dark:text-emerald-300">Active Event: {activeEvent.name}</span>
+              <span className="text-xs font-bold text-emerald-800 dark:text-emerald-300">Active: {activeEvent.name}</span>
+              <span className={`text-[10px] font-extrabold px-2 py-0.5 rounded-md border ${
+                activeEvent.allowedPrograms && activeEvent.allowedPrograms !== 'ALL'
+                  ? 'bg-amber-500/20 text-amber-800 dark:text-amber-300 border-amber-500/40'
+                  : 'bg-emerald-500/20 text-emerald-800 dark:text-emerald-300 border-emerald-500/40'
+              }`}>
+                {activeEvent.allowedPrograms && activeEvent.allowedPrograms !== 'ALL'
+                  ? `Allowed: ${activeEvent.allowedPrograms}`
+                  : 'All Programs Allowed'}
+              </span>
             </div>
           ) : (
             <div className="flex items-center gap-2 rounded-xl bg-amber-500/10 px-3.5 py-2 border border-amber-500/30">
@@ -4119,7 +4319,20 @@ function Scanner() {
                 </Button>
               )}
 
-              {message && <div className={`text-xs font-semibold mt-1 ${message.startsWith('✓') ? 'text-emerald-600' : 'text-red-500'}`}>{message}</div>}
+              {message && (
+                <div
+                  className={`rounded-xl p-3 text-xs font-semibold mt-1 border transition-all ${
+                    message.startsWith('✓')
+                      ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-700 dark:text-emerald-400'
+                      : 'bg-red-500/10 border-red-500/30 text-red-600 dark:text-red-400'
+                  }`}
+                >
+                  <div className="flex items-start gap-2">
+                    <span className="text-sm shrink-0">{message.startsWith('✓') ? '✅' : '🚫'}</span>
+                    <div className="leading-snug">{message}</div>
+                  </div>
+                </div>
+              )}
 
               {/* Roster Quick-Click Shortcuts */}
               {students.length > 0 && (

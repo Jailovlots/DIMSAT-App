@@ -15,6 +15,7 @@ export interface Event {
   venue: string;
   status: string;
   qrStatus: string;
+  allowedPrograms: string;
   sessions: AttendanceSession[];
   totalStudents: number;
   presentCount: number;

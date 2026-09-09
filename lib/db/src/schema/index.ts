@@ -87,6 +87,7 @@ export const eventsTable = pgTable("attendance_events", {
   endTime: text("end_time").notNull(),
   status: text("status").notNull().default("scheduled"),
   qrStatus: text("qr_status").notNull().default("not_generated"),
+  allowedPrograms: text("allowed_programs").notNull().default("ALL"),
   createdBy: integer("created_by"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),

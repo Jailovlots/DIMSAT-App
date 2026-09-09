@@ -18,6 +18,7 @@ export type LiveEvent = {
   eventDate: string;
   venue: string;
   status: string;
+  allowedPrograms?: string;
   sessions: {
     id: number;
     name: string;
@@ -38,12 +39,13 @@ export type StudentEventRecord = {
   eventName: string;
   eventDate: string;
   venue: string;
+  allowedPrograms?: string;
   sessions: StudentSessionRecord[];
   presentCount: number;
   totalSessions: number;
 };
 
-export function useStudentAttendance(studentId: string | null | undefined) {
+export function useStudentAttendance(studentId: string | null | undefined, studentProgram?: string | null | undefined) {
   const [events, setEvents] = useState<StudentEventRecord[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -73,6 +75,15 @@ export function useStudentAttendance(studentId: string | null | undefined) {
       const allEvents: LiveEvent[] = await eventsRes.json();
       const allRecords: LiveAttendanceRecord[] = await attendanceRes.json();
 
+      // Filter events to only those open to the student's program (or ALL)
+      const relevantEvents = allEvents.filter((event) => {
+        if (!studentProgram || !event.allowedPrograms || event.allowedPrograms.toUpperCase() === 'ALL') {
+          return true;
+        }
+        const allowedList = event.allowedPrograms.split(',').map((p) => p.trim().toUpperCase());
+        return allowedList.includes(studentProgram.trim().toUpperCase());
+      });
+
       // Filter records for this specific student
       const myRecords = allRecords.filter(
         (r) => r.studentId.toUpperCase() === studentId.toUpperCase(),
@@ -89,7 +100,7 @@ export function useStudentAttendance(studentId: string | null | undefined) {
       const now = new Date();
 
       // Build student event records
-      const result: StudentEventRecord[] = allEvents.map((event) => {
+      const result: StudentEventRecord[] = relevantEvents.map((event) => {
         const enabledSessions = event.sessions.filter((s) => s.enabled);
 
         const sessionRecords: StudentSessionRecord[] = enabledSessions.map((s) => {

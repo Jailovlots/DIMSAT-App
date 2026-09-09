@@ -13,6 +13,7 @@ export interface EventInput {
   description: string;
   eventDate: string;
   venue: string;
+  allowedPrograms?: string;
   startTime: string;
   endTime: string;
   /** @minItems 1 */

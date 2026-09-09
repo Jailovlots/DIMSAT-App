@@ -59,6 +59,7 @@ export interface Event {
   venue: string;
   status: string;
   qrStatus: string;
+  allowedPrograms: string;
   sessions: AttendanceSession[];
   totalStudents: number;
   presentCount: number;
@@ -77,6 +78,7 @@ export interface EventInput {
   description: string;
   eventDate: string;
   venue: string;
+  allowedPrograms?: string;
   startTime: string;
   endTime: string;
   /** @minItems 1 */

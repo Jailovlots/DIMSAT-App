@@ -263,6 +263,7 @@ components:
         sex: { type: string }
         status: { type: string }
         profilePhoto: { type: ["string", "null"] }
+        profileUploadCount: { type: number }
     StudentImport:
       type: object
       required: [rows]
@@ -291,7 +292,7 @@ components:
         invalid: { type: number }
     Event:
       type: object
-      required: [id, name, description, eventDate, venue, status, qrStatus, sessions, totalStudents, presentCount]
+      required: [id, name, description, eventDate, venue, status, qrStatus, allowedPrograms, sessions, totalStudents, presentCount]
       properties:
         id: { type: number }
         name: { type: string }
@@ -300,6 +301,7 @@ components:
         venue: { type: string }
         status: { type: string }
         qrStatus: { type: string }
+        allowedPrograms: { type: string }
         sessions:
           type: array
           items:
@@ -314,6 +316,7 @@ components:
         description: { type: string }
         eventDate: { type: string }
         venue: { type: string }
+        allowedPrograms: { type: string }
         startTime: { type: string }
         endTime: { type: string }
         sessions:

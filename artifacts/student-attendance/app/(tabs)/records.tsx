@@ -10,7 +10,7 @@ import { useStudentAttendance } from '@/hooks/useStudentAttendance';
 export default function Records() {
   const colors = useColors();
   const { account } = useAttendance();
-  const { events, loading, error, refresh } = useStudentAttendance(account?.studentId);
+  const { events, loading, error, refresh } = useStudentAttendance(account?.studentId, account?.program);
 
   // Aggregate totals across all events
   const totalPresent = events.reduce((sum, e) => sum + e.presentCount, 0);

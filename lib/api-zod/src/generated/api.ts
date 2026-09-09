@@ -32,6 +32,7 @@ export const GetDashboardResponse = zod.object({
   "venue": zod.string(),
   "status": zod.string(),
   "qrStatus": zod.string(),
+  "allowedPrograms": zod.string(),
   "sessions": zod.array(zod.object({
   "id": zod.number(),
   "name": zod.string(),
@@ -64,7 +65,8 @@ export const ListStudentsResponseItem = zod.object({
   "program": zod.string(),
   "sex": zod.string(),
   "status": zod.string(),
-  "profilePhoto": zod.string().nullable()
+  "profilePhoto": zod.string().nullable(),
+  "profileUploadCount": zod.number().optional()
 })
 export const ListStudentsResponse = zod.array(ListStudentsResponseItem)
 
@@ -99,6 +101,7 @@ export const ListEventsResponseItem = zod.object({
   "venue": zod.string(),
   "status": zod.string(),
   "qrStatus": zod.string(),
+  "allowedPrograms": zod.string(),
   "sessions": zod.array(zod.object({
   "id": zod.number(),
   "name": zod.string(),
@@ -122,6 +125,7 @@ export const CreateEventBody = zod.object({
   "description": zod.string(),
   "eventDate": zod.string(),
   "venue": zod.string(),
+  "allowedPrograms": zod.string().optional(),
   "startTime": zod.string(),
   "endTime": zod.string(),
   "sessions": zod.array(zod.object({
@@ -140,6 +144,7 @@ export const CreateEventResponse = zod.object({
   "venue": zod.string(),
   "status": zod.string(),
   "qrStatus": zod.string(),
+  "allowedPrograms": zod.string(),
   "sessions": zod.array(zod.object({
   "id": zod.number(),
   "name": zod.string(),
@@ -196,10 +201,12 @@ export const ScanAttendanceResponse = zod.object({
   "studentId": zod.string(),
   "studentName": zod.string(),
   "yearLevel": zod.string(),
+  "program": zod.string(),
   "profilePhoto": zod.string().nullable(),
   "eventName": zod.string(),
   "sessionName": zod.string(),
-  "alreadyRecorded": zod.boolean()
+  "alreadyRecorded": zod.boolean(),
+  "message": zod.string().nullable()
 })
 
 

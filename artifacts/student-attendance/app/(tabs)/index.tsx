@@ -10,8 +10,19 @@ import { useStudentAttendance } from '@/hooks/useStudentAttendance';
 export default function Dashboard() {
   const colors = useColors();
   const { account } = useAttendance();
-  const { events, loading } = useStudentAttendance(account?.studentId);
+  const { events, loading } = useStudentAttendance(account?.studentId, account?.program);
   const [showQrModal, setShowQrModal] = useState(false);
+
+  // QR size options: label → pixel dimension for both the fetch URL and rendered image
+  const QR_SIZES: { label: string; px: number }[] = [
+    { label: 'S',  px: 80  },
+    { label: 'M',  px: 110 },
+    { label: 'L',  px: 140 },
+    { label: 'XL', px: 170 },
+    { label: '2X', px: 210 },
+    { label: '3X', px: 260 },
+  ];
+  const [qrSizeIdx, setQrSizeIdx] = useState(0); // default: S (original size)
 
   if (!account) return null;
 
@@ -28,7 +39,10 @@ export default function Dashboard() {
   const today = new Intl.DateTimeFormat('en-US', { weekday: 'long', month: 'long', day: 'numeric' }).format(new Date());
 
   const qrData = `ZDSPGC_PERMANENT_QR_01:${account.studentId}`;
-  const qrImageUrl = `https://api.qrserver.com/v1/create-qr-code/?size=350x350&data=${encodeURIComponent(qrData)}&margin=12&format=png`;
+  const selectedQrPx = QR_SIZES[qrSizeIdx].px;
+  // Fetch a larger source image so it stays crisp when displayed bigger
+  const fetchPx = Math.max(selectedQrPx * 2, 350);
+  const qrImageUrl = `https://api.qrserver.com/v1/create-qr-code/?size=${fetchPx}x${fetchPx}&data=${encodeURIComponent(qrData)}&margin=12&format=png`;
 
   return (
     <Screen>
@@ -227,10 +241,10 @@ export default function Dashboard() {
                 </View>
 
                 {/* High-contrast QR Container */}
-                <View style={styles.cardQrContainer}>
+                <View style={[styles.cardQrContainer, { width: selectedQrPx + 8, height: selectedQrPx + 8 }]}>
                   <Image
                     source={{ uri: qrImageUrl }}
-                    style={styles.cardQrImage}
+                    style={{ width: selectedQrPx, height: selectedQrPx }}
                     resizeMode="contain"
                   />
                 </View>
@@ -240,6 +254,35 @@ export default function Dashboard() {
               <View style={styles.cardFooter}>
                 <Text style={styles.cardFooterText}>OFFICIAL STUDENT ATTENDANCE PASS</Text>
                 <Text style={styles.cardFooterText}>REUSABLE ALL SEMESTER</Text>
+              </View>
+            </View>
+
+            {/* QR Size Picker */}
+            <View style={styles.sizePicker}>
+              <Text style={[styles.sizePickerLabel, { color: colors.mutedForeground }]}>QR SIZE</Text>
+              <View style={styles.sizeOptions}>
+                {QR_SIZES.map((s, i) => (
+                  <Pressable
+                    key={s.label}
+                    onPress={() => setQrSizeIdx(i)}
+                    style={[
+                      styles.sizeBtn,
+                      {
+                        backgroundColor: i === qrSizeIdx ? colors.primary : colors.secondary,
+                        borderColor: i === qrSizeIdx ? colors.primary : colors.border,
+                      },
+                    ]}
+                  >
+                    <Text
+                      style={[
+                        styles.sizeBtnText,
+                        { color: i === qrSizeIdx ? colors.primaryForeground : colors.foreground },
+                      ]}
+                    >
+                      {s.label}
+                    </Text>
+                  </Pressable>
+                ))}
               </View>
             </View>
 
@@ -321,12 +364,16 @@ const styles = StyleSheet.create({
   cardMetaItem: { fontSize: 8.5, lineHeight: 11 },
   cardMetaKey: { color: '#64748b', fontWeight: '700' },
   cardMetaVal: { color: '#0f172a', fontWeight: '900' },
-  cardQrContainer: { width: 88, height: 88, borderRadius: 8, borderWidth: 1.5, borderColor: '#0f172a', backgroundColor: '#ffffff', padding: 2, justifyContent: 'center', alignItems: 'center', shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.08, shadowRadius: 4, elevation: 2 },
-  cardQrImage: { width: 80, height: 80 },
+  cardQrContainer: { borderRadius: 8, borderWidth: 1.5, borderColor: '#0f172a', backgroundColor: '#ffffff', padding: 4, justifyContent: 'center', alignItems: 'center', shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.08, shadowRadius: 4, elevation: 2 },
   cardFooter: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', borderTopWidth: 1, borderTopColor: '#e2e8f0', paddingTop: 5, marginTop: 6 },
   cardFooterText: { fontSize: 6.5, fontWeight: '800', color: '#64748b', letterSpacing: 0.4, textTransform: 'uppercase' },
 
-  passNotice: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 12, paddingVertical: 9, borderRadius: 12, width: '100%', marginTop: 12, marginBottom: 14 },
+  sizePicker: { width: '100%', marginTop: 12, marginBottom: 4, alignItems: 'center', gap: 6 },
+  sizePickerLabel: { fontSize: 9, fontWeight: '800', letterSpacing: 1.4, textTransform: 'uppercase' },
+  sizeOptions: { flexDirection: 'row', gap: 6 },
+  sizeBtn: { width: 38, height: 32, borderRadius: 8, borderWidth: 1.5, alignItems: 'center', justifyContent: 'center' },
+  sizeBtnText: { fontSize: 11, fontWeight: '800' },
+  passNotice: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 12, paddingVertical: 9, borderRadius: 12, width: '100%', marginTop: 8, marginBottom: 14 },
   passNoticeText: { flex: 1, fontSize: 10.5, lineHeight: 14, fontWeight: '600' },
   doneBtn: { width: '100%', paddingVertical: 12, borderRadius: 14, alignItems: 'center', justifyContent: 'center' },
   doneBtnText: { fontSize: 13, fontWeight: '800' },

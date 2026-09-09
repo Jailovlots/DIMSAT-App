@@ -51,6 +51,7 @@ function sanitizeProfilePhoto(photo?: string | null): string | null {
     await db.execute(sql`ALTER TABLE system_settings ADD COLUMN IF NOT EXISTS late_threshold_minutes INTEGER NOT NULL DEFAULT 15;`);
     await db.execute(sql`ALTER TABLE officers ADD COLUMN IF NOT EXISTS role TEXT NOT NULL DEFAULT 'officer';`);
     await db.execute(sql`ALTER TABLE officers ADD COLUMN IF NOT EXISTS password_hash TEXT;`);
+    await db.execute(sql`ALTER TABLE attendance_events ADD COLUMN IF NOT EXISTS allowed_programs TEXT NOT NULL DEFAULT 'ALL';`);
     await db.execute(sql`
       CREATE TABLE IF NOT EXISTS attendance_qr_codes (
         id SERIAL PRIMARY KEY,
@@ -94,6 +95,18 @@ function sanitizeProfilePhoto(photo?: string | null): string | null {
 })();
 
 // ─── UTILITY HELPERS ─────────────────────────────────────────────────────────
+
+function isProgramAllowed(allowedProgramsStr: string | null | undefined, studentProgram: string | null | undefined): boolean {
+  if (!allowedProgramsStr || allowedProgramsStr.trim() === "" || allowedProgramsStr.trim().toUpperCase() === "ALL") {
+    return true;
+  }
+  if (!studentProgram) return false;
+  const allowedList = allowedProgramsStr
+    .split(",")
+    .map((p) => p.trim().toUpperCase())
+    .filter(Boolean);
+  return allowedList.includes(studentProgram.trim().toUpperCase());
+}
 
 function parseMinutes(timeStr: string): number {
   if (!timeStr || typeof timeStr !== "string") return 0;
@@ -1099,9 +1112,31 @@ async function buildEventPayload(event: typeof eventsTable.$inferSelect) {
     .from(attendanceSessionsTable)
     .where(eq(attendanceSessionsTable.eventId, event.id));
 
-  const [{ value: totalStudents }] = await db
-    .select({ value: count() })
-    .from(certifiedStudentsTable);
+  const allowedPrograms = event.allowedPrograms || "ALL";
+  let totalStudents = 0;
+  if (allowedPrograms.toUpperCase() === "ALL") {
+    const [{ value }] = await db
+      .select({ value: count() })
+      .from(certifiedStudentsTable);
+    totalStudents = Number(value);
+  } else {
+    const programList = allowedPrograms
+      .split(",")
+      .map((p) => p.trim())
+      .filter(Boolean);
+    if (programList.length > 0) {
+      const [{ value }] = await db
+        .select({ value: count() })
+        .from(certifiedStudentsTable)
+        .where(sql`UPPER(${certifiedStudentsTable.program}) IN (${sql.join(programList.map(p => sql`${p.toUpperCase()}`), sql`, `)})`);
+      totalStudents = Number(value);
+    } else {
+      const [{ value }] = await db
+        .select({ value: count() })
+        .from(certifiedStudentsTable);
+      totalStudents = Number(value);
+    }
+  }
 
   const [{ value: presentCount }] = await db
     .select({ value: count() })
@@ -1116,6 +1151,7 @@ async function buildEventPayload(event: typeof eventsTable.$inferSelect) {
     venue: event.venue,
     status: event.status,
     qrStatus: event.qrStatus,
+    allowedPrograms,
     sessions: sessions.map((s) => ({
       id: s.id,
       name: s.name,
@@ -1124,7 +1160,7 @@ async function buildEventPayload(event: typeof eventsTable.$inferSelect) {
       enabled: s.enabled,
       active: s.active,
     })),
-    totalStudents: Number(totalStudents),
+    totalStudents,
     presentCount: Number(presentCount),
   };
 }
@@ -1145,13 +1181,14 @@ router.get("/events", async (_req, res, next) => {
 
 router.post("/events", async (req, res, next) => {
   try {
-    const { name, description, eventDate, venue, startTime, endTime, sessions } = req.body as {
+    const { name, description, eventDate, venue, startTime, endTime, allowedPrograms, sessions } = req.body as {
       name: string;
       description: string;
       eventDate: string;
       venue: string;
       startTime: string;
       endTime: string;
+      allowedPrograms?: string;
       sessions: { name: string; startTime: string; endTime: string; enabled: boolean }[];
     };
 
@@ -1173,6 +1210,7 @@ router.post("/events", async (req, res, next) => {
         description: description || "",
         eventDate,
         venue,
+        allowedPrograms: allowedPrograms && allowedPrograms.trim() ? allowedPrograms.trim() : "ALL",
         startTime: startTime || "07:00",
         endTime: endTime || "22:00",
       })
@@ -1193,7 +1231,7 @@ router.post("/events", async (req, res, next) => {
       action: "CREATE_EVENT",
       entityType: "event",
       entityId: String(event.id),
-      details: `Created event: ${event.name} (${defaultSessions.length} sessions)`,
+      details: `Created event: ${event.name} (${defaultSessions.length} sessions, programs: ${event.allowedPrograms})`,
     });
 
     res.status(201).json(await buildEventPayload(event));
@@ -1205,12 +1243,13 @@ router.post("/events", async (req, res, next) => {
 router.put("/events/:id", async (req, res, next) => {
   try {
     const eventId = Number(req.params["id"]);
-    const { name, description, eventDate, venue, status, sessions } = req.body as {
+    const { name, description, eventDate, venue, status, allowedPrograms, sessions } = req.body as {
       name?: string;
       description?: string;
       eventDate?: string;
       venue?: string;
       status?: string;
+      allowedPrograms?: string;
       sessions?: { id?: number; name: string; startTime: string; endTime: string; enabled: boolean; active?: boolean }[];
     };
 
@@ -1228,6 +1267,7 @@ router.put("/events/:id", async (req, res, next) => {
         eventDate: eventDate ?? existingRows[0].eventDate,
         venue: venue ?? existingRows[0].venue,
         status: status ?? existingRows[0].status,
+        allowedPrograms: allowedPrograms !== undefined ? (allowedPrograms.trim() || "ALL") : existingRows[0].allowedPrograms,
         updatedAt: new Date(),
       })
       .where(eq(eventsTable.id, eventId))
@@ -1891,6 +1931,17 @@ router.post("/attendance/scan", async (req, res, next) => {
 
     const { event, sessions, assignedSessionId } = eventContext;
 
+    // Check program access restriction
+    if (!isProgramAllowed(event.allowedPrograms, student.program)) {
+      res.status(400).json({
+        error: `PROGRAM NOT ALLOWED: Student "${student.fullName}" is enrolled in ${student.program}, but this event is restricted to [${event.allowedPrograms}]. Scanning is not permitted.`,
+        disallowedProgram: true,
+        studentProgram: student.program,
+        allowedPrograms: event.allowedPrograms,
+      });
+      return;
+    }
+
     // 2. Resolve Active Attendance Session according to mode and Manila time
     let activeSession = null;
     if (assignedSessionId) {
@@ -2019,6 +2070,14 @@ router.post("/attendance/confirm", async (req, res, next) => {
     }
 
     const { event, sessions, assignedSessionId } = eventContext;
+
+    // Check program access restriction
+    if (!isProgramAllowed(event.allowedPrograms, student.program)) {
+      res.status(400).json({
+        error: `PROGRAM NOT ALLOWED: Student "${student.fullName}" is enrolled in ${student.program}, but this event is restricted to [${event.allowedPrograms}]. Attendance cannot be confirmed.`,
+      });
+      return;
+    }
 
     // 2. Resolve active session
     let session = null;
