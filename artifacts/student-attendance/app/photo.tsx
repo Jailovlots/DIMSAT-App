@@ -4,6 +4,7 @@ import * as ImagePicker from 'expo-image-picker';
 import { router } from 'expo-router';
 import { Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 import { Avatar, PrimaryButton, Screen } from '@/components/AttendaUI';
+import { ImageCropModal } from '@/components/ImageCropModal';
 import { MAX_PROFILE_PHOTO_CHANGES, useAttendance } from '@/context/AttendanceContext';
 import { useColors } from '@/hooks/useColors';
 
@@ -42,6 +43,8 @@ export default function Photo() {
   const { account, updatePhoto } = useAttendance();
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
+  // On web, hold the raw picked URI here until the user finishes cropping.
+  const [pendingUri, setPendingUri] = useState<string | null>(null);
 
   if (!account) return null;
 
@@ -54,15 +57,26 @@ export default function Photo() {
     if (!permission.granted) {
       return setError('Photo access is needed to choose a profile photo.');
     }
+
+    // On web, skip the native allowsEditing (it is a no-op) and capture the
+    // raw URI so our ImageCropModal can handle it instead.
+    const isWeb = Platform.OS === 'web';
     const result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ['images'],
-      allowsEditing: true,
+      allowsEditing: !isWeb,   // native: system crop  |  web: our modal
       aspect: [1, 1],
       quality: 0.75,
-      base64: true,
+      base64: !isWeb,          // native needs base64; web reads the blob URI
     });
     if (result.canceled || !result.assets[0]) return;
 
+    if (isWeb) {
+      // Open the crop modal; actual save happens in handleCropDone.
+      setPendingUri(result.assets[0].uri);
+      return;
+    }
+
+    // Native path – proceed as before.
     setBusy(true);
     try {
       const photoDataUrl = await convertAssetToDataUrl(result.assets[0]);
@@ -79,8 +93,30 @@ export default function Photo() {
     }
   };
 
+  /** Called by ImageCropModal when the user taps "Use Photo" or cancels. */
+  const handleCropDone = async (dataUrl: string | null) => {
+    setPendingUri(null);
+    if (!dataUrl) return;  // user cancelled
+    setBusy(true);
+    try {
+      const saved = await updatePhoto(dataUrl);
+      if (!saved.ok) {
+        setError(saved.error ?? 'Failed to update profile photo.');
+      } else {
+        router.back();
+      }
+    } catch (e: any) {
+      setError(e?.message || 'Error processing photo. Please try another image.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
   return (
     <Screen>
+      {/* Web-only crop modal – no-op on native */}
+      <ImageCropModal sourceUri={pendingUri} onDone={handleCropDone} />
+
       <Pressable onPress={() => router.back()} style={styles.back}>
         <Feather name="arrow-left" size={21} color={colors.primary} />
         <Text style={[styles.backText, { color: colors.primary }]}>My profile</Text>
