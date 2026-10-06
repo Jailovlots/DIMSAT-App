@@ -553,16 +553,6 @@ function SignIn() {
       setLoading(false);
 
       if (!res.ok || !data.user) {
-        // Fallback for demo/offline
-        if (email.toLowerCase().includes('admin') || email.toLowerCase().includes('attenda')) {
-          const defaultAdmin: StaffUser = { id: 0, fullName: 'Admin', email: email.trim(), role: 'super_admin' };
-          localStorage.setItem('dimsat_user', JSON.stringify(defaultAdmin));
-          setEmail('');
-          setPassword('');
-          setError('');
-          setLocation('/dashboard');
-          return;
-        }
         setError(data.error || 'Invalid work email or password.');
         return;
       }
@@ -574,18 +564,7 @@ function SignIn() {
       setLocation('/dashboard');
     } catch {
       setLoading(false);
-      // Offline fallback
-      const fallbackUser: StaffUser = {
-        id: 0,
-        fullName: email.split('@')[0].replace('.', ' '),
-        email: email.trim(),
-        role: email.toLowerCase().includes('officer') ? 'officer' : 'super_admin',
-      };
-      localStorage.setItem('dimsat_user', JSON.stringify(fallbackUser));
-      setEmail('');
-      setPassword('');
-      setError('');
-      setLocation('/dashboard');
+      setError('Unable to reach the server. Please check your connection and try again.');
     }
   };
 

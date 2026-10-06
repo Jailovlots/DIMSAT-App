@@ -2320,12 +2320,10 @@ router.post("/auth/staff/login", async (req, res, next) => {
       // fallback to default
     }
 
-    // Default or configured Admin login check
+    // Default or configured Admin login check — EXACT match only, no prefix wildcards
     const isAdminEmail =
       cleanEmail === "admin@attenda.edu" ||
-      cleanEmail === "admin@zdspgc.edu.ph" ||
-      cleanEmail === "admin" ||
-      cleanEmail.startsWith("admin@");
+      cleanEmail === "admin@zdspgc.edu.ph";
 
     if (isAdminEmail && password === adminPassword) {
       res.json({
