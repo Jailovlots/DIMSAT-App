@@ -47,7 +47,19 @@ const isRemoteDb = process.env.DATABASE_URL.includes("neon.tech") || process.env
 export const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
   ...(isRemoteDb ? { ssl: { rejectUnauthorized: false } } : {}),
+  // Keep connections alive and prevent dead socket hangs on Neon / cloud poolers
+  keepAlive: true,
+  keepAliveInitialDelayMillis: 10000,
+  connectionTimeoutMillis: 7000, // Fail/reconnect fast (7s) instead of hanging for minutes if TCP dropped
+  idleTimeoutMillis: 15000, // Prune idle pooler connections after 15s to avoid stale sockets
+  max: 10,
 });
+
+pool.on("error", (err) => {
+  // Prevent unhandled errors from breaking the process when idle pooler connections drop
+  console.warn("[db:pool] Unexpected idle database client error (will auto-reconnect):", err.message);
+});
+
 export const db = drizzle(pool, { schema });
 
 export * from "./schema";

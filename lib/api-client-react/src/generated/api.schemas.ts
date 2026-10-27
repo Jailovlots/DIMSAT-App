@@ -173,6 +173,8 @@ search?: string;
 yearLevel?: string;
 program?: string;
 sort?: ListStudentsSort;
+/** When true, profilePhoto (base64) is included in each student record. */
+includePhoto?: boolean;
 };
 
 export type ListStudentsSort = typeof ListStudentsSort[keyof typeof ListStudentsSort];

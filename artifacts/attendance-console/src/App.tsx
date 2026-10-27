@@ -1,7 +1,7 @@
 import { QueryClient, QueryClientProvider, useQueryClient } from '@tanstack/react-query';
 import {
   Activity, ArrowRight, BadgeCheck, BarChart3, Bell, CalendarDays, Camera, Check, CheckCircle2,
-  ChevronDown, ClipboardCheck, Clock3, Download, Eye, EyeOff, FileUp, Filter, GraduationCap,
+  ChevronDown, ChevronLeft, ChevronRight, ClipboardCheck, Clock3, Download, Eye, EyeOff, FileUp, Filter, GraduationCap,
   Key, LayoutDashboard, Loader2, Lock, LogOut, Menu, MoreHorizontal, MoreVertical, Moon, Pencil, Plus, Printer, QrCode,
   RefreshCw, RotateCcw, ScanLine, Search, Settings2, ShieldCheck, SlidersHorizontal, Sun, Trash2, User, UserCheck, UserPlus,
   Users, Volume2, X, Zap
@@ -27,7 +27,18 @@ import { QRCodeSVG } from 'qrcode.react';
 import * as XLSX from 'xlsx';
 import jsQR from 'jsqr';
 
-const queryClient = new QueryClient();
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      staleTime: 1000 * 60 * 2, // 2 minutes cache: navigation and button clicks are instantaneous
+      gcTime: 1000 * 60 * 15, // 15 minutes garbage collection
+      refetchOnWindowFocus: false, // Prevent re-fetching and lagging on every window click/focus
+      refetchOnReconnect: true,
+      retry: 1,
+      retryDelay: 1000,
+    },
+  },
+});
 
 const nav = [
   { href: '/dashboard', label: 'Overview', icon: LayoutDashboard },
@@ -211,7 +222,7 @@ function Field({ label, value, onChange, placeholder, type = 'text', autoComplet
       <div className="relative flex items-center">
         <input
           data-testid={`input-${label.toLowerCase().replaceAll(' ', '-')}`}
-          type={isPassword && !showPwd ? 'password' : 'text'}
+          type={isPassword && !showPwd ? 'password' : type}
           value={value}
           onChange={e => onChange(e.target.value)}
           placeholder={placeholder}
@@ -234,6 +245,273 @@ function Field({ label, value, onChange, placeholder, type = 'text', autoComplet
         )}
       </div>
     </label>
+  );
+}
+
+function EventDateField({
+  label = 'Event Date',
+  value,
+  onChange,
+}: {
+  label?: string;
+  value: string;
+  onChange: (v: string) => void;
+}) {
+  const [isOpen, setIsOpen] = useState(false);
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  // Parse YYYY-MM-DD
+  const parsedDate = useMemo(() => {
+    if (!value) return new Date();
+    const parts = value.split('-').map(Number);
+    if (parts.length === 3 && !isNaN(parts[0]) && !isNaN(parts[1]) && !isNaN(parts[2])) {
+      return new Date(parts[0], parts[1] - 1, parts[2]);
+    }
+    return new Date();
+  }, [value]);
+
+  const [viewYear, setViewYear] = useState(() => parsedDate.getFullYear());
+  const [viewMonth, setViewMonth] = useState(() => parsedDate.getMonth());
+
+  // Sync month/year view whenever value changes
+  useEffect(() => {
+    setViewYear(parsedDate.getFullYear());
+    setViewMonth(parsedDate.getMonth());
+  }, [value]);
+
+  // Close calendar popover on outside click
+  useEffect(() => {
+    function handleClickOutside(e: MouseEvent) {
+      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
+        setIsOpen(false);
+      }
+    }
+    if (isOpen) {
+      document.addEventListener('mousedown', handleClickOutside);
+      return () => document.removeEventListener('mousedown', handleClickOutside);
+    }
+  }, [isOpen]);
+
+  const monthNames = [
+    'January', 'February', 'March', 'April', 'May', 'June',
+    'July', 'August', 'September', 'October', 'November', 'December'
+  ];
+
+  const daysInMonth = new Date(viewYear, viewMonth + 1, 0).getDate();
+  const firstDayOfWeek = new Date(viewYear, viewMonth, 1).getDay();
+
+  const prevMonth = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (viewMonth === 0) {
+      setViewMonth(11);
+      setViewYear(y => y - 1);
+    } else {
+      setViewMonth(m => m - 1);
+    }
+  };
+
+  const nextMonth = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (viewMonth === 11) {
+      setViewMonth(0);
+      setViewYear(y => y + 1);
+    } else {
+      setViewMonth(m => m + 1);
+    }
+  };
+
+  const selectDate = (day: number) => {
+    const yyyy = String(viewYear);
+    const mm = String(viewMonth + 1).padStart(2, '0');
+    const dd = String(day).padStart(2, '0');
+    onChange(`${yyyy}-${mm}-${dd}`);
+    setIsOpen(false);
+  };
+
+  const setPreset = (daysOffset: number) => {
+    const d = new Date();
+    d.setDate(d.getDate() + daysOffset);
+    const yyyy = String(d.getFullYear());
+    const mm = String(d.getMonth() + 1).padStart(2, '0');
+    const dd = String(d.getDate()).padStart(2, '0');
+    onChange(`${yyyy}-${mm}-${dd}`);
+    setIsOpen(false);
+  };
+
+  const today = new Date();
+  const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+  const isSelectedToday = value === todayStr;
+
+  const friendlyDate = useMemo(() => {
+    if (!value) return '';
+    try {
+      const parts = value.split('-').map(Number);
+      if (parts.length === 3) {
+        const d = new Date(parts[0], parts[1] - 1, parts[2]);
+        return d.toLocaleDateString('en-US', {
+          weekday: 'short',
+          month: 'short',
+          day: 'numeric',
+          year: 'numeric',
+        });
+      }
+    } catch {
+      // ignore
+    }
+    return '';
+  }, [value]);
+
+  return (
+    <div className="grid gap-1.5 text-[11px] font-bold text-muted-foreground relative" ref={containerRef}>
+      <div className="flex items-center justify-between">
+        <span>{label}</span>
+        {isSelectedToday && (
+          <span className="font-mono text-[9px] uppercase px-1.5 py-0.5 rounded bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 font-extrabold">
+            Today (Auto)
+          </span>
+        )}
+      </div>
+
+      <div className="relative flex items-center">
+        <input
+          data-testid="input-event-date"
+          type="text"
+          value={value}
+          onChange={e => onChange(e.target.value)}
+          placeholder="YYYY-MM-DD"
+          onClick={() => setIsOpen(true)}
+          className="h-10 w-full rounded-lg border border-input bg-background pl-9 pr-24 text-sm font-medium text-foreground outline-none transition-colors placeholder:text-muted-foreground/55 focus:border-primary focus:ring-2 focus:ring-primary/15"
+        />
+        <button
+          type="button"
+          onClick={() => setIsOpen(v => !v)}
+          className="absolute left-2.5 text-primary hover:text-primary/80 transition-colors cursor-pointer"
+          title="Open calendar picker"
+        >
+          <CalendarDays className="size-4" />
+        </button>
+        {friendlyDate && (
+          <span
+            onClick={() => setIsOpen(true)}
+            className="absolute right-2 text-[10.5px] font-semibold text-muted-foreground/80 pointer-events-auto cursor-pointer truncate max-w-[110px]"
+            title={friendlyDate}
+          >
+            {friendlyDate}
+          </span>
+        )}
+      </div>
+
+      {isOpen && (
+        <div className="absolute top-[100%] left-0 z-50 mt-1.5 w-full sm:w-[310px] rounded-2xl border border-card-border bg-card p-3.5 shadow-2xl animate-in fade-in zoom-in-95 duration-150">
+          {/* Quick presets */}
+          <div className="flex items-center gap-1.5 pb-2.5 border-b border-border">
+            <button
+              type="button"
+              onClick={() => setPreset(0)}
+              className="flex-1 rounded-lg bg-muted/60 py-1 px-2 text-[10px] font-bold text-foreground hover:bg-primary/15 hover:text-primary transition-colors text-center"
+            >
+              Today
+            </button>
+            <button
+              type="button"
+              onClick={() => setPreset(1)}
+              className="flex-1 rounded-lg bg-muted/60 py-1 px-2 text-[10px] font-bold text-foreground hover:bg-primary/15 hover:text-primary transition-colors text-center"
+            >
+              Tomorrow
+            </button>
+            <button
+              type="button"
+              onClick={() => setPreset(7)}
+              className="flex-1 rounded-lg bg-muted/60 py-1 px-2 text-[10px] font-bold text-foreground hover:bg-primary/15 hover:text-primary transition-colors text-center"
+            >
+              +7 Days
+            </button>
+          </div>
+
+          {/* Month / Year Header */}
+          <div className="flex items-center justify-between py-2">
+            <button
+              type="button"
+              onClick={prevMonth}
+              className="rounded-lg p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
+              title="Previous month"
+            >
+              <ChevronLeft className="size-4" />
+            </button>
+            <div className="text-xs font-black tracking-tight text-foreground">
+              {monthNames[viewMonth]} {viewYear}
+            </div>
+            <button
+              type="button"
+              onClick={nextMonth}
+              className="rounded-lg p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
+              title="Next month"
+            >
+              <ChevronRight className="size-4" />
+            </button>
+          </div>
+
+          {/* Days of week header */}
+          <div className="grid grid-cols-7 gap-1 text-center font-mono text-[9.5px] font-bold text-muted-foreground mb-1">
+            <span>Su</span>
+            <span>Mo</span>
+            <span>Tu</span>
+            <span>We</span>
+            <span>Th</span>
+            <span>Fr</span>
+            <span>Sa</span>
+          </div>
+
+          {/* Day Grid */}
+          <div className="grid grid-cols-7 gap-1 text-center">
+            {Array.from({ length: firstDayOfWeek }).map((_, i) => (
+              <div key={`blank-${i}`} className="h-7 w-7" />
+            ))}
+
+            {Array.from({ length: daysInMonth }).map((_, i) => {
+              const day = i + 1;
+              const yyyy = String(viewYear);
+              const mm = String(viewMonth + 1).padStart(2, '0');
+              const dd = String(day).padStart(2, '0');
+              const cellDateStr = `${yyyy}-${mm}-${dd}`;
+              const isSelected = cellDateStr === value;
+              const isTodayCell = cellDateStr === todayStr;
+
+              return (
+                <button
+                  key={day}
+                  type="button"
+                  onClick={() => selectDate(day)}
+                  className={`h-7 w-7 rounded-lg text-xs font-bold transition-all mx-auto flex items-center justify-center ${
+                    isSelected
+                      ? 'bg-primary text-primary-foreground shadow-sm font-black ring-2 ring-primary/40'
+                      : isTodayCell
+                      ? 'border border-primary/50 text-primary font-black hover:bg-primary/10'
+                      : 'text-foreground hover:bg-muted'
+                  }`}
+                >
+                  {day}
+                </button>
+              );
+            })}
+          </div>
+
+          {/* Direct OS native calendar picker fallback */}
+          <div className="mt-3 pt-2.5 border-t border-border flex items-center justify-between text-[10px]">
+            <span className="text-muted-foreground font-medium">Or pick via browser:</span>
+            <input
+              type="date"
+              value={value}
+              onChange={e => {
+                onChange(e.target.value);
+                setIsOpen(false);
+              }}
+              className="rounded-md border border-input bg-background px-1.5 py-0.5 text-xs font-semibold text-foreground outline-none focus:border-primary cursor-pointer"
+            />
+          </div>
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -346,8 +624,8 @@ function AppShell({ children }: { children: React.ReactNode }) {
     .toUpperCase();
 
   return (
-    <div className="min-h-[100dvh] bg-background">
-      <aside className={`fixed inset-y-0 left-0 z-40 flex w-[250px] flex-col sidebar-bg px-3.5 py-4 text-sidebar-foreground transition-transform md:translate-x-0 overflow-y-auto ${mobileOpen ? 'translate-x-0' : '-translate-x-full'}`}>
+    <div className="min-h-[100dvh] bg-background print:min-h-0 print:bg-white">
+      <aside className={`fixed inset-y-0 left-0 z-40 flex w-[250px] flex-col sidebar-bg px-3.5 py-4 text-sidebar-foreground transition-transform md:translate-x-0 overflow-y-auto ${mobileOpen ? 'translate-x-0' : '-translate-x-full'} print:hidden`}>
         {/* Colorful top accent strip */}
         <div className="absolute inset-x-0 top-0 h-[4px] rounded-t-none" style={{ background: 'linear-gradient(90deg, #4ade80, #38bdf8, #a78bfa, #fb923c, #f472b6)' }} />
         {/* Subtle radial glow behind logo */}
@@ -427,9 +705,9 @@ function AppShell({ children }: { children: React.ReactNode }) {
         </div>
       </aside>
       {mobileOpen && <button aria-label="Close menu" data-testid="button-close-menu" className="fixed inset-0 z-30 bg-sidebar/40 md:hidden" onClick={() => setMobileOpen(false)} />}
-      <main className="md:pl-[250px]">
+      <main className="md:pl-[250px] print:pl-0 print:m-0 print:p-0">
         <AppHeader location={location} onOpenMobile={() => setMobileOpen(true)} />
-        <div className="mx-auto max-w-[1440px] px-4 py-5 md:px-7 md:py-6">{children}</div>
+        <div className="mx-auto max-w-[1440px] px-4 py-5 md:px-7 md:py-6 print:p-0 print:m-0 print:max-w-none print:w-full">{children}</div>
       </main>
     </div>
   );
@@ -438,7 +716,7 @@ function AppShell({ children }: { children: React.ReactNode }) {
 
 function PageHeader({ eyebrow, title, description, action }: { eyebrow: string; title: string; description: string; action?: React.ReactNode }) {
   return (
-    <div className="mb-5 flex flex-col justify-between gap-3 md:flex-row md:items-end">
+    <div className="mb-5 flex flex-col justify-between gap-3 md:flex-row md:items-end print:hidden">
       <div className="rise-in">
         <div className="mb-1 font-mono text-[10px] font-medium uppercase tracking-[.18em] text-primary">{eyebrow}</div>
         <h1 className="text-[22px] font-extrabold tracking-[-.05em] text-foreground md:text-[26px]">{title}</h1>
@@ -777,7 +1055,7 @@ function AppHeader({ location, onOpenMobile }: { location: string; onOpenMobile?
 
   return (
     <>
-      <header className="sticky top-0 z-20 flex h-[60px] items-center justify-between border-b border-border/70 bg-background/90 px-4 backdrop-blur-md md:px-7">
+      <header className="sticky top-0 z-20 flex h-[60px] items-center justify-between border-b border-border/70 bg-background/90 px-4 backdrop-blur-md md:px-7 print:hidden">
         {/* Left section: Hamburger for Mobile + Brand or Breadcrumb */}
         <div className="flex items-center gap-3">
           <button
@@ -947,7 +1225,7 @@ function Students() {
   const [editingStudent, setEditingStudent] = useState<Student | null>(null);
   const [deletingId, setDeletingId] = useState<number | null>(null);
 
-  const q = useListStudents({ search: search || undefined, sort, program: programFilter === 'all' ? undefined : programFilter, yearLevel: yearFilter === 'all' ? undefined : yearFilter });
+  const q = useListStudents({ search: search || undefined, sort, program: programFilter === 'all' ? undefined : programFilter, yearLevel: yearFilter === 'all' ? undefined : yearFilter, includePhoto: true });
   const students = q.data || [];
   const settingsQ = useGetSettings();
   const maxPhotoUploads = settingsQ.data?.maxPhotoUploads ?? 2;
@@ -1142,8 +1420,265 @@ function Students() {
   );
 }
 
+// ─── Image Crop Modal ─────────────────────────────────────────────────────────
+function ImageCropModal({
+  src,
+  onConfirm,
+  onCancel,
+}: {
+  src: string;
+  onConfirm: (cropped: string) => void;
+  onCancel: () => void;
+}) {
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const previewRef = useRef<HTMLCanvasElement>(null);
+  const imgRef = useRef<HTMLImageElement | null>(null);
+
+  // offset = top-left of image on canvas, in canvas pixels
+  const [offset, setOffset] = useState({ x: 0, y: 0 });
+  const [scale, setScale] = useState(1);
+  const [dragging, setDragging] = useState(false);
+  const dragStart = useRef({ mx: 0, my: 0, ox: 0, oy: 0 });
+  const CANVAS = 320; // canvas display px (square)
+
+  // Load image once
+  useEffect(() => {
+    const img = new Image();
+    img.onload = () => {
+      imgRef.current = img;
+      // fit image inside canvas initially
+      const fit = Math.max(CANVAS / img.naturalWidth, CANVAS / img.naturalHeight);
+      const s = fit;
+      setScale(s);
+      setOffset({
+        x: (CANVAS - img.naturalWidth * s) / 2,
+        y: (CANVAS - img.naturalHeight * s) / 2,
+      });
+    };
+    img.src = src;
+  }, [src]);
+
+  // Redraw canvas whenever offset/scale changes
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    const img = imgRef.current;
+    if (!canvas || !img) return;
+    const ctx = canvas.getContext('2d')!;
+    const dpr = window.devicePixelRatio || 1;
+    canvas.width = CANVAS * dpr;
+    canvas.height = CANVAS * dpr;
+    canvas.style.width = `${CANVAS}px`;
+    canvas.style.height = `${CANVAS}px`;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+    // Background
+    ctx.fillStyle = '#0f172a';
+    ctx.fillRect(0, 0, CANVAS, CANVAS);
+
+    // Draw image
+    ctx.drawImage(img, offset.x, offset.y, img.naturalWidth * scale, img.naturalHeight * scale);
+
+    // Dim outside circle
+    ctx.save();
+    ctx.fillStyle = 'rgba(0,0,0,0.55)';
+    ctx.fillRect(0, 0, CANVAS, CANVAS);
+    const cx = CANVAS / 2, cy = CANVAS / 2, r = CANVAS / 2 - 4;
+    ctx.globalCompositeOperation = 'destination-out';
+    ctx.beginPath();
+    ctx.arc(cx, cy, r, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+
+    // Circle border
+    ctx.strokeStyle = 'rgba(255,183,3,0.85)';
+    ctx.lineWidth = 2.5;
+    ctx.beginPath();
+    ctx.arc(CANVAS / 2, CANVAS / 2, CANVAS / 2 - 4, 0, Math.PI * 2);
+    ctx.stroke();
+
+    // Live preview
+    const prev = previewRef.current;
+    if (prev) {
+      const pctx = prev.getContext('2d')!;
+      prev.width = 80; prev.height = 80;
+      pctx.clearRect(0, 0, 80, 80);
+      pctx.save();
+      pctx.beginPath();
+      pctx.arc(40, 40, 40, 0, Math.PI * 2);
+      pctx.clip();
+      // scale from main canvas (CANVAS→80)
+      const ratio = 80 / CANVAS;
+      pctx.drawImage(img,
+        offset.x * ratio, offset.y * ratio,
+        img.naturalWidth * scale * ratio,
+        img.naturalHeight * scale * ratio,
+      );
+      pctx.restore();
+    }
+  }, [offset, scale]);
+
+  // Clamp helper
+  const clamp = (val: number, min: number, max: number) => Math.max(min, Math.min(max, val));
+
+  const clampOffset = (ox: number, oy: number, s: number, img: HTMLImageElement) => ({
+    x: clamp(ox, CANVAS - img.naturalWidth * s, 0),
+    y: clamp(oy, CANVAS - img.naturalHeight * s, 0),
+  });
+
+  // Mouse drag
+  const onMouseDown = (e: React.MouseEvent) => {
+    setDragging(true);
+    dragStart.current = { mx: e.clientX, my: e.clientY, ox: offset.x, oy: offset.y };
+  };
+  const onMouseMove = (e: React.MouseEvent) => {
+    if (!dragging || !imgRef.current) return;
+    const dx = e.clientX - dragStart.current.mx;
+    const dy = e.clientY - dragStart.current.my;
+    setOffset(clampOffset(dragStart.current.ox + dx, dragStart.current.oy + dy, scale, imgRef.current));
+  };
+  const onMouseUp = () => setDragging(false);
+
+  // Touch drag
+  const lastTouch = useRef<{ x: number; y: number } | null>(null);
+  const onTouchStart = (e: React.TouchEvent) => {
+    if (e.touches.length === 1) lastTouch.current = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+  };
+  const onTouchMove = (e: React.TouchEvent) => {
+    e.preventDefault();
+    if (!imgRef.current) return;
+    if (e.touches.length === 1 && lastTouch.current) {
+      const dx = e.touches[0].clientX - lastTouch.current.x;
+      const dy = e.touches[0].clientY - lastTouch.current.y;
+      setOffset(prev => clampOffset(prev.x + dx, prev.y + dy, scale, imgRef.current!));
+      lastTouch.current = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+    }
+  };
+
+  // Scroll to zoom
+  const onWheel = (e: React.WheelEvent) => {
+    if (!imgRef.current) return;
+    e.preventDefault();
+    const delta = -e.deltaY * 0.001;
+    const img = imgRef.current;
+    const minScale = Math.max(CANVAS / img.naturalWidth, CANVAS / img.naturalHeight);
+    const newScale = clamp(scale + delta * scale, minScale, minScale * 6);
+    // zoom toward canvas center
+    const cx = CANVAS / 2;
+    const cy = CANVAS / 2;
+    const newOx = cx - (cx - offset.x) * (newScale / scale);
+    const newOy = cy - (cy - offset.y) * (newScale / scale);
+    setScale(newScale);
+    setOffset(clampOffset(newOx, newOy, newScale, img));
+  };
+
+  // Slider zoom
+  const onSlider = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (!imgRef.current) return;
+    const img = imgRef.current;
+    const minScale = Math.max(CANVAS / img.naturalWidth, CANVAS / img.naturalHeight);
+    const newScale = minScale + (Number(e.target.value) / 100) * minScale * 5;
+    const cx = CANVAS / 2, cy = CANVAS / 2;
+    const newOx = cx - (cx - offset.x) * (newScale / scale);
+    const newOy = cy - (cy - offset.y) * (newScale / scale);
+    setScale(newScale);
+    setOffset(clampOffset(newOx, newOy, newScale, img));
+  };
+
+  // Compute slider value 0-100
+  const sliderVal = () => {
+    if (!imgRef.current) return 0;
+    const img = imgRef.current;
+    const minScale = Math.max(CANVAS / img.naturalWidth, CANVAS / img.naturalHeight);
+    return Math.round(((scale - minScale) / (minScale * 5)) * 100);
+  };
+
+  const handleConfirm = () => {
+    const img = imgRef.current;
+    if (!img) return;
+    const OUT = 400;
+    const off = document.createElement('canvas');
+    off.width = OUT; off.height = OUT;
+    const ctx = off.getContext('2d')!;
+    const ratio = OUT / CANVAS;
+    // clip circle
+    ctx.beginPath();
+    ctx.arc(OUT / 2, OUT / 2, OUT / 2, 0, Math.PI * 2);
+    ctx.clip();
+    ctx.drawImage(img,
+      offset.x * ratio, offset.y * ratio,
+      img.naturalWidth * scale * ratio,
+      img.naturalHeight * scale * ratio,
+    );
+    onConfirm(off.toDataURL('image/jpeg', 0.88));
+  };
+
+  return (
+    <div className="fixed inset-0 z-[60] flex flex-col items-center justify-center bg-black/80 backdrop-blur-sm p-4" onClick={e => e.target === e.currentTarget && onCancel()}>
+      <div className="w-full max-w-sm rounded-2xl bg-slate-900 border border-white/10 shadow-2xl overflow-hidden">
+        {/* Header */}
+        <div className="flex items-center justify-between px-5 py-3.5 border-b border-white/10">
+          <div>
+            <div className="font-mono text-[10px] uppercase tracking-wider text-primary font-bold">Photo Editor</div>
+            <h3 className="text-sm font-extrabold text-white">Crop Profile Photo</h3>
+          </div>
+          <button onClick={onCancel} className="rounded-lg p-1.5 text-slate-400 hover:text-white hover:bg-white/10 transition-colors"><X className="size-4" /></button>
+        </div>
+
+        {/* Canvas */}
+        <div className="flex flex-col items-center gap-3 px-5 pt-4 pb-2">
+          <p className="text-[11px] text-slate-400 font-medium">Drag to reposition · Scroll or use slider to zoom</p>
+          <div className="relative rounded-full overflow-hidden" style={{ width: CANVAS, height: CANVAS }}>
+            <canvas
+              ref={canvasRef}
+              style={{ width: CANVAS, height: CANVAS, cursor: dragging ? 'grabbing' : 'grab', display: 'block', touchAction: 'none' }}
+              onMouseDown={onMouseDown}
+              onMouseMove={onMouseMove}
+              onMouseUp={onMouseUp}
+              onMouseLeave={onMouseUp}
+              onTouchStart={onTouchStart}
+              onTouchMove={onTouchMove}
+              onTouchEnd={() => { lastTouch.current = null; }}
+              onWheel={onWheel}
+            />
+          </div>
+
+          {/* Zoom slider */}
+          <div className="flex w-full items-center gap-3">
+            <span className="text-[10px] text-slate-400 font-mono w-5 text-center">−</span>
+            <input
+              type="range" min="0" max="100" value={sliderVal()}
+              onChange={onSlider}
+              className="flex-1 h-1.5 appearance-none rounded-full bg-white/20 accent-[#ffb703] cursor-pointer"
+            />
+            <span className="text-[10px] text-slate-400 font-mono w-5 text-center">+</span>
+            {/* Mini preview */}
+            <div className="ml-2 rounded-full overflow-hidden border-2 border-amber-400/60 shrink-0" style={{ width: 40, height: 40 }}>
+              <canvas ref={previewRef} style={{ width: 40, height: 40, display: 'block' }} />
+            </div>
+          </div>
+        </div>
+
+        {/* Actions */}
+        <div className="flex items-center justify-end gap-2 px-5 py-4 border-t border-white/10">
+          <button
+            onClick={onCancel}
+            className="px-4 py-2 rounded-lg text-xs font-bold text-slate-300 hover:bg-white/10 transition-colors"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={handleConfirm}
+            className="px-5 py-2 rounded-lg text-xs font-extrabold bg-[#ffb703] text-slate-900 hover:brightness-110 transition-all shadow-md active:scale-95"
+          >
+            ✓ Apply Crop
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function EditStudentDialog({ student, onClose, onSuccess }: { student: Student; onClose: () => void; onSuccess: () => void }) {
-  const { toast } = useToast();
   const [fullName, setFullName] = useState(student.fullName);
   const [yearLevel, setYearLevel] = useState(String(student.yearLevel ?? '1'));
   const [program, setProgram] = useState(student.program ?? 'BSIS');
@@ -1151,21 +1686,17 @@ function EditStudentDialog({ student, onClose, onSuccess }: { student: Student; 
   const [profilePhoto, setProfilePhoto] = useState<string | null>(student.profilePhoto ?? null);
   const [isSaving, setIsSaving] = useState(false);
 
-  // Password reset state
-  const [showPasswordSection, setShowPasswordSection] = useState(false);
-  const [newPassword, setNewPassword] = useState('');
-  const [confirmPassword, setConfirmPassword] = useState('');
-  const [isResettingPwd, setIsResettingPwd] = useState(false);
-  const [showNewPwd, setShowNewPwd] = useState(false);
-  const [showConfirmPwd, setShowConfirmPwd] = useState(false);
+  // Crop state
+  const [cropSrc, setCropSrc] = useState<string | null>(null);
 
   const handlePhotoSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
+    e.target.value = '';
     const reader = new FileReader();
     reader.onloadend = () => {
       if (typeof reader.result === 'string') {
-        setProfilePhoto(reader.result);
+        setCropSrc(reader.result);
       }
     };
     reader.readAsDataURL(file);
@@ -1193,51 +1724,16 @@ function EditStudentDialog({ student, onClose, onSuccess }: { student: Student; 
     }
   };
 
-  const handleResetPassword = async () => {
-    if (!newPassword.trim()) {
-      toast({ title: 'Password required', description: 'Please enter a new password.', variant: 'destructive' });
-      return;
-    }
-    if (newPassword.length < 6) {
-      toast({ title: 'Password too short', description: 'Password must be at least 6 characters.', variant: 'destructive' });
-      return;
-    }
-    if (newPassword !== confirmPassword) {
-      toast({ title: 'Passwords do not match', description: 'New password and confirmation must be identical.', variant: 'destructive' });
-      return;
-    }
-    setIsResettingPwd(true);
-    try {
-      const res = await fetch(`/api/students/${student.id}/reset-password`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ newPassword: newPassword.trim() }),
-      });
-      const body = await res.json().catch(() => ({}));
-      if (res.ok) {
-        toast({
-          title: '✅ Password Reset Successful',
-          description: `New password set for ${student.fullName}. Share it with the student securely.`,
-        });
-        setNewPassword('');
-        setConfirmPassword('');
-        setShowPasswordSection(false);
-      } else {
-        toast({
-          title: 'Reset Failed',
-          description: (body as { error?: string }).error || 'Could not reset password.',
-          variant: 'destructive',
-        });
-      }
-    } catch {
-      toast({ title: 'Network Error', description: 'Could not reach the server.', variant: 'destructive' });
-    } finally {
-      setIsResettingPwd(false);
-    }
-  };
-
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-sidebar/50 p-4 backdrop-blur-sm overflow-y-auto">
+    <>
+      {cropSrc && (
+        <ImageCropModal
+          src={cropSrc}
+          onConfirm={(cropped) => { setProfilePhoto(cropped); setCropSrc(null); }}
+          onCancel={() => setCropSrc(null)}
+        />
+      )}
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-sidebar/50 p-4 backdrop-blur-sm overflow-y-auto">
       <div className="w-full max-w-md rounded-2xl border border-card-border bg-card p-6 shadow-2xl my-auto">
         <div className="flex justify-between items-center border-b border-border pb-3 mb-4">
           <div>
@@ -1254,12 +1750,21 @@ function EditStudentDialog({ student, onClose, onSuccess }: { student: Student; 
             <StudentAvatar src={profilePhoto} name={fullName || student.studentId} size="md" className="size-16" />
             <div className="flex-1">
               <label className="text-xs font-bold text-foreground block mb-1">Profile Photo</label>
-              <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
                 <label className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-background px-3 py-1.5 text-xs font-bold text-foreground cursor-pointer hover:bg-muted transition-colors">
                   <Camera className="size-3.5 text-primary" />
                   <span>{profilePhoto ? 'Change photo' : 'Upload photo'}</span>
                   <input type="file" accept="image/*" onChange={handlePhotoSelect} className="hidden" />
                 </label>
+                {profilePhoto && (
+                  <button
+                    type="button"
+                    onClick={() => setCropSrc(profilePhoto)}
+                    className="inline-flex items-center gap-1 rounded-lg border border-primary/40 bg-primary/8 px-3 py-1.5 text-xs font-bold text-primary hover:bg-primary/15 transition-colors"
+                  >
+                    <SlidersHorizontal className="size-3" /> Crop
+                  </button>
+                )}
                 {profilePhoto && (
                   <button
                     type="button"
@@ -1316,100 +1821,6 @@ function EditStudentDialog({ student, onClose, onSuccess }: { student: Student; 
               <option value="Male">Male</option>
             </select>
           </div>
-
-          {/* ── Reset App Password Section ── */}
-          <div className="rounded-xl border border-amber-200/60 bg-amber-50/50 dark:border-amber-800/40 dark:bg-amber-900/10 overflow-hidden">
-            <button
-              type="button"
-              onClick={() => { setShowPasswordSection(v => !v); setNewPassword(''); setConfirmPassword(''); }}
-              className="flex w-full items-center justify-between px-4 py-3 text-left"
-            >
-              <div className="flex items-center gap-2.5">
-                <div className="grid size-7 place-items-center rounded-lg bg-amber-500/15">
-                  <ShieldCheck className="size-3.5 text-amber-600 dark:text-amber-400" />
-                </div>
-                <div>
-                  <div className="text-xs font-extrabold text-amber-800 dark:text-amber-300">Reset Student App Password</div>
-                  <div className="text-[10px] text-amber-700/70 dark:text-amber-400/70">Set a new login password for the student mobile app</div>
-                </div>
-              </div>
-              <ChevronDown className={`size-4 text-amber-600 dark:text-amber-400 transition-transform duration-200 ${showPasswordSection ? 'rotate-180' : ''}`} />
-            </button>
-
-            {showPasswordSection && (
-              <div className="border-t border-amber-200/60 dark:border-amber-800/40 px-4 pb-4 pt-3 grid gap-3">
-                <div className="rounded-lg bg-amber-100/80 dark:bg-amber-900/30 px-3 py-2 text-[10px] text-amber-800 dark:text-amber-300 font-medium leading-4">
-                  ⚠️ The student will need to use this new password to log in to the <strong>ZDSPGC Student App</strong>. Share it with them securely.
-                </div>
-
-                {/* New Password */}
-                <div className="grid gap-1.5">
-                  <span className="text-[11px] font-bold text-muted-foreground">New Password</span>
-                  <div className="relative flex items-center">
-                    <input
-                      data-testid="input-student-new-password"
-                      type={showNewPwd ? 'text' : 'password'}
-                      value={newPassword}
-                      onChange={e => setNewPassword(e.target.value)}
-                      placeholder="Min. 6 characters"
-                      className="h-10 w-full rounded-lg border border-input bg-background px-3 pr-10 text-sm font-medium text-foreground outline-none transition-colors focus:border-primary focus:ring-2 focus:ring-primary/15"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => setShowNewPwd(v => !v)}
-                      className="absolute right-3 text-muted-foreground hover:text-foreground transition-colors"
-                    >
-                      {showNewPwd ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
-                    </button>
-                  </div>
-                </div>
-
-                {/* Confirm Password */}
-                <div className="grid gap-1.5">
-                  <span className="text-[11px] font-bold text-muted-foreground">Confirm New Password</span>
-                  <div className="relative flex items-center">
-                    <input
-                      data-testid="input-student-confirm-password"
-                      type={showConfirmPwd ? 'text' : 'password'}
-                      value={confirmPassword}
-                      onChange={e => setConfirmPassword(e.target.value)}
-                      placeholder="Re-enter new password"
-                      className={`h-10 w-full rounded-lg border bg-background px-3 pr-10 text-sm font-medium text-foreground outline-none transition-colors focus:ring-2 focus:ring-primary/15 ${confirmPassword && confirmPassword !== newPassword
-                          ? 'border-red-400 focus:border-red-400 focus:ring-red-400/15'
-                          : confirmPassword && confirmPassword === newPassword
-                            ? 'border-emerald-400 focus:border-emerald-400 focus:ring-emerald-400/15'
-                            : 'border-input focus:border-primary'
-                        }`}
-                    />
-                    <button
-                      type="button"
-                      onClick={() => setShowConfirmPwd(v => !v)}
-                      className="absolute right-3 text-muted-foreground hover:text-foreground transition-colors"
-                    >
-                      {showConfirmPwd ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
-                    </button>
-                  </div>
-                  {confirmPassword && confirmPassword !== newPassword && (
-                    <p className="text-[10px] text-red-500 font-semibold">Passwords do not match</p>
-                  )}
-                  {confirmPassword && confirmPassword === newPassword && (
-                    <p className="text-[10px] text-emerald-600 font-semibold">✓ Passwords match</p>
-                  )}
-                </div>
-
-                <Button
-                  data-testid="button-reset-student-password"
-                  variant="soft"
-                  disabled={!newPassword || !confirmPassword || newPassword !== confirmPassword || isResettingPwd}
-                  onClick={handleResetPassword}
-                  className="bg-amber-500/15 text-amber-800 hover:bg-amber-500/25 dark:text-amber-300"
-                >
-                  <ShieldCheck className="size-3.5" />
-                  {isResettingPwd ? 'Resetting Password…' : 'Confirm Password Reset'}
-                </Button>
-              </div>
-            )}
-          </div>
         </div>
 
         <div className="mt-6 flex justify-end gap-2 border-t border-border pt-4">
@@ -1418,8 +1829,9 @@ function EditStudentDialog({ student, onClose, onSuccess }: { student: Student; 
             {isSaving ? 'Saving…' : 'Save Changes'}
           </Button>
         </div>
+        </div>
       </div>
-    </div>
+    </>
   );
 }
 
@@ -1757,44 +2169,75 @@ function Events() {
         action={<Button data-testid="button-open-create-event" onClick={() => setShowCreate(true)}><Plus className="size-4" />New Event</Button>}
       />
 
+      {/* Auto-activation info banner */}
+      <div className="mb-4 flex items-start gap-3 rounded-xl border border-primary/20 bg-primary/6 px-4 py-3">
+        <Zap className="size-4 text-primary mt-0.5 shrink-0" />
+        <p className="text-xs text-foreground/80 leading-relaxed">
+          <span className="font-bold text-primary">Automatic Activation</span> — Events are automatically set to
+          {' '}<span className="font-semibold">Active</span> on their scheduled date and marked
+          {' '}<span className="font-semibold">Completed</span> once the date has passed. No manual action needed.
+          You can still manually override any event's status below.
+        </p>
+      </div>
+
       {q.isLoading ? <Loading /> : q.isError ? <ErrorState retry={() => q.refetch()} /> : events.length ? (
         <div className="grid gap-4 lg:grid-cols-2">
           {events.map((e) => (
-            <div data-testid={`card-event-${e.id}`} key={e.id} className="rise-in rounded-xl border border-card-border bg-card p-5 shadow-sm">
-              <div className="flex items-start justify-between">
-                <div>
-                  <div className="font-mono text-[10px] uppercase tracking-[.14em] text-primary">
-                    {new Date(e.eventDate).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })} · {e.venue}
+            <div data-testid={`card-event-${e.id}`} key={e.id} className={`rise-in rounded-xl border bg-card p-5 shadow-sm transition-colors ${
+              e.status === 'active' ? 'border-emerald-500/40 ring-1 ring-emerald-500/20' : 'border-card-border'
+            }`}>
+              {(() => {
+                const todayPhManila = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Manila', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
+                const isToday = e.eventDate === todayPhManila;
+                return (
+                  <div className="flex items-start justify-between">
+                    <div>
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <div className="font-mono text-[10px] uppercase tracking-[.14em] text-primary">
+                          {new Date(e.eventDate).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })} · {e.venue}
+                        </div>
+                        {isToday && (
+                          <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/12 border border-emerald-500/30 px-2 py-0.5 text-[9px] font-extrabold uppercase tracking-wider text-emerald-700 dark:text-emerald-400">
+                            <Zap className="size-2.5" /> Today · Auto
+                          </span>
+                        )}
+                      </div>
+                      <h2 className="mt-2 text-lg font-extrabold tracking-[-.04em]">{e.name}</h2>
+                      <p className="mt-1 text-xs text-muted-foreground">{e.description}</p>
+                      <div className="mt-2.5 flex items-center gap-1.5 flex-wrap">
+                        <span className="font-mono text-[9px] uppercase tracking-wider text-muted-foreground">Access:</span>
+                        {e.allowedPrograms && e.allowedPrograms !== 'ALL' ? (
+                          e.allowedPrograms.split(',').map((p) => (
+                            <span key={p} className="inline-flex items-center gap-1 rounded-md bg-amber-500/10 border border-amber-500/20 px-2 py-0.5 text-[10px] font-bold text-amber-700 dark:text-amber-400">
+                              <GraduationCap className="size-3" />
+                              {p.trim()} Only
+                            </span>
+                          ))
+                        ) : (
+                          <span className="inline-flex items-center gap-1 rounded-md bg-emerald-500/10 border border-emerald-500/20 px-2 py-0.5 text-[10px] font-bold text-emerald-700 dark:text-emerald-400">
+                            <ShieldCheck className="size-3" />
+                            All Programs
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                    <div className="flex flex-col items-end gap-1.5">
+                      <Badge tone={
+                        e.status === 'active' ? 'success'
+                        : e.status === 'completed' ? 'teal'
+                        : e.status === 'draft' || e.status === 'scheduled' ? 'warning'
+                        : 'neutral'
+                      }>{e.status}</Badge>
+                      <button
+                        onClick={() => handleToggleStatus(e.id, e.status)}
+                        className="text-[10px] font-bold text-muted-foreground underline hover:text-primary"
+                      >
+                        {e.status === 'active' ? 'Deactivate' : 'Activate Event'}
+                      </button>
+                    </div>
                   </div>
-                  <h2 className="mt-2 text-lg font-extrabold tracking-[-.04em]">{e.name}</h2>
-                  <p className="mt-1 text-xs text-muted-foreground">{e.description}</p>
-                  <div className="mt-2.5 flex items-center gap-1.5 flex-wrap">
-                    <span className="font-mono text-[9px] uppercase tracking-wider text-muted-foreground">Access:</span>
-                    {e.allowedPrograms && e.allowedPrograms !== 'ALL' ? (
-                      e.allowedPrograms.split(',').map((p) => (
-                        <span key={p} className="inline-flex items-center gap-1 rounded-md bg-amber-500/10 border border-amber-500/20 px-2 py-0.5 text-[10px] font-bold text-amber-700 dark:text-amber-400">
-                          <GraduationCap className="size-3" />
-                          {p.trim()} Only
-                        </span>
-                      ))
-                    ) : (
-                      <span className="inline-flex items-center gap-1 rounded-md bg-emerald-500/10 border border-emerald-500/20 px-2 py-0.5 text-[10px] font-bold text-emerald-700 dark:text-emerald-400">
-                        <ShieldCheck className="size-3" />
-                        All Programs
-                      </span>
-                    )}
-                  </div>
-                </div>
-                <div className="flex flex-col items-end gap-1.5">
-                  <Badge tone={e.status === 'active' ? 'success' : e.status === 'draft' ? 'warning' : 'neutral'}>{e.status}</Badge>
-                  <button
-                    onClick={() => handleToggleStatus(e.id, e.status)}
-                    className="text-[10px] font-bold text-muted-foreground underline hover:text-primary"
-                  >
-                    {e.status === 'active' ? 'Deactivate' : 'Activate Event'}
-                  </button>
-                </div>
-              </div>
+                );
+              })()}
 
               <div className="mt-6 grid grid-cols-3 gap-2 border-y border-border py-4">
                 <div>
@@ -1892,6 +2335,26 @@ function Events() {
       )}
     </AppShell>
   );
+}
+
+export function isProgramAllowed(allowedProgramsStr?: string | null, studentProgram?: string | null): boolean {
+  if (!allowedProgramsStr || allowedProgramsStr.trim() === '' || allowedProgramsStr.trim().toUpperCase() === 'ALL') {
+    return true;
+  }
+  if (!studentProgram) return false;
+  const studentProgUpper = studentProgram.trim().toUpperCase();
+  const allowedList = allowedProgramsStr
+    .split(',')
+    .map(p => p.trim().toUpperCase())
+    .filter(Boolean);
+
+  return allowedList.some(allowed => {
+    if (allowed === studentProgUpper) return true;
+    if ((allowed === 'ACT' || allowed === 'ACT-AD') && (studentProgUpper === 'ACT' || studentProgUpper === 'ACT-AD')) {
+      return true;
+    }
+    return false;
+  });
 }
 
 const CAMPUS_PROGRAMS = ['BSIS', 'BPED', 'ACT-AD'];
@@ -2053,7 +2516,7 @@ function EditEventDialog({ event, close, refetch }: { event: Event; close: () =>
           <Field label="Event Name" value={name} onChange={setName} placeholder="Annual Acquaintance Party 2026" />
           <div className="grid grid-cols-2 gap-3">
             <Field label="Venue" value={venue} onChange={setVenue} placeholder="School Gymnasium" />
-            <Field label="Event Date" value={date} onChange={setDate} type="date" />
+            <EventDateField label="Event Date" value={date} onChange={setDate} />
           </div>
           <Field label="Description" value={description} onChange={setDescription} placeholder="Brief event description" />
 
@@ -2242,12 +2705,13 @@ function PrintStudentQrCardsModal({ event, token, onClose }: { event: Event; tok
   ];
   const [qrSizeIdx, setQrSizeIdx] = useState(1); // default S (72px) — fits the physical card
 
-  // Auto-select all students by default once loaded so user can print all immediately
+  // Auto-select eligible students by default once loaded so user can print all immediately
   useEffect(() => {
     if (students.length > 0 && selectedIds.size === 0) {
-      setSelectedIds(new Set(students.map((s) => s.id)));
+      const eligible = students.filter((s) => isProgramAllowed(event.allowedPrograms, s.program));
+      setSelectedIds(new Set(eligible.map((s) => s.id)));
     }
-  }, [students]);
+  }, [students, event.allowedPrograms]);
 
   // All programs/years derived from loaded data
   const allPrograms = Array.from(new Set(students.map((s) => s.program))).sort();
@@ -2668,8 +3132,10 @@ function EventDialog({ close, create }: { close: () => void; create: ReturnType<
         {/* Scrollable Body */}
         <div className="overflow-y-auto px-6 py-4 flex-1 grid gap-4">
           <Field label="Event Name" value={name} onChange={setName} placeholder="e.g. Acquaintance Party 2026" />
-          <Field label="Venue" value={venue} onChange={setVenue} placeholder="School Gymnasium" />
-          <Field label="Event Date" value={date} onChange={setDate} type="date" />
+          <div className="grid grid-cols-2 gap-3">
+            <Field label="Venue" value={venue} onChange={setVenue} placeholder="School Gymnasium" />
+            <EventDateField label="Event Date" value={date} onChange={setDate} />
+          </div>
           <Field label="Description" value={description} onChange={setDescription} placeholder="Brief event description" />
 
           {/* Program Access Selection */}
@@ -2799,58 +3265,127 @@ function Attendance() {
   // Active event helper
   const activeEvent = eventsList.find(e => e.status === 'active') || eventsList[0];
 
-  // Combined Present + Absent Records
-  const allRecords = useMemo(() => {
-    // 1. Process Scanned (Present/Late) Records
-    const scannedList = rawRecords.map(r => {
-      const studentInfo = studentsMap.get(r.studentId.toUpperCase());
-      return {
-        id: String(r.id),
-        studentId: r.studentId,
-        studentName: r.studentName,
-        yearLevel: r.yearLevel || studentInfo?.yearLevel || '1',
-        program: ((r as { program?: string }).program) || studentInfo?.program || 'BSIS',
-        eventName: r.eventName,
-        sessionName: r.sessionName,
-        scannedAt: r.scannedAt,
-        officerName: r.officerName || 'Officer 01',
-        status: (r.status || 'present').toLowerCase(),
-        isPresent: true,
-      };
-    });
+  // Target event context for scoping program eligibility
+  const currentEvent = selectedEvent !== 'all'
+    ? eventsList.find(e => e.name.toLowerCase() === selectedEvent.toLowerCase())
+    : activeEvent;
 
-    // Set of student IDs that have a scanned record for the selected event / session
-    const scannedStudentIds = new Set<string>();
-    for (const r of rawRecords) {
+  // Combined Present + Absent Records (Synchronized 1-to-1 with certified student roster)
+  const allRecords = useMemo(() => {
+    // 1. Filter matching raw scanned records by selectedEvent & session
+    const matchingRaw = rawRecords.filter(r => {
       const matchesEv = selectedEvent === 'all' || r.eventName.toLowerCase() === selectedEvent.toLowerCase();
       const matchesSes = session === 'all' || r.sessionName.toLowerCase() === session.toLowerCase();
-      if (matchesEv && matchesSes) {
-        scannedStudentIds.add(r.studentId.toUpperCase());
-      }
+      return matchesEv && matchesSes;
+    });
+
+    // 2. Group matching scans by student ID (case-insensitive) to ensure uniqueness
+    const scannedByStudent = new Map<string, typeof rawRecords>();
+    for (const r of matchingRaw) {
+      const key = r.studentId.trim().toUpperCase();
+      const list = scannedByStudent.get(key) || [];
+      list.push(r);
+      scannedByStudent.set(key, list);
     }
 
-    // 2. Derive Unscanned (Absent) Students from the Certified Roster
-    const absentList: typeof scannedList = [];
+    // 3. Build synchronized student records from the Certified Student Roster
+    const rosterRecords: Array<{
+      id: string;
+      studentId: string;
+      studentName: string;
+      yearLevel: string;
+      program: string;
+      eventName: string;
+      sessionName: string;
+      scannedAt: string;
+      officerName: string;
+      status: 'present' | 'absent';
+      isPresent: boolean;
+    }> = [];
+
     for (const s of studentsList) {
-      if (!scannedStudentIds.has(s.studentId.toUpperCase())) {
-        absentList.push({
-          id: `absent-${s.id}`,
+      const key = s.studentId.trim().toUpperCase();
+      const scans = scannedByStudent.get(key);
+
+      if (scans && scans.length > 0) {
+        // Student is PRESENT: sort scans by scannedAt desc to get the most recent scan
+        const sortedScans = [...scans].sort((a, b) => {
+          const tA = a.scannedAt ? new Date(a.scannedAt).getTime() : 0;
+          const tB = b.scannedAt ? new Date(b.scannedAt).getTime() : 0;
+          return tB - tA;
+        });
+        const latest = sortedScans[0];
+        const uniqueSessions = Array.from(new Set(scans.map(x => x.sessionName))).join(', ');
+        const uniqueEvents = Array.from(new Set(scans.map(x => x.eventName))).join(', ');
+
+        rosterRecords.push({
+          id: String(latest.id),
           studentId: s.studentId,
           studentName: s.fullName,
-          yearLevel: String(s.yearLevel || '1'),
-          program: s.program || 'BSIS',
-          eventName: selectedEvent !== 'all' ? selectedEvent : (activeEvent?.name || 'All Events'),
-          sessionName: session !== 'all' ? session : '—',
-          scannedAt: null as unknown as string,
-          officerName: '—',
-          status: 'absent',
-          isPresent: false,
+          yearLevel: String(s.yearLevel || latest.yearLevel || '1'),
+          program: s.program || (latest as { program?: string }).program || 'BSIS',
+          eventName: uniqueEvents || latest.eventName,
+          sessionName: uniqueSessions || latest.sessionName,
+          scannedAt: latest.scannedAt,
+          officerName: latest.officerName || 'Officer 01',
+          status: 'present',
+          isPresent: true,
+        });
+        continue;
+      }
+
+      // If student did NOT scan:
+      // Verify program eligibility. If the event is restricted (e.g. intended for BSIS and ACT),
+      // students from other programs (such as BPED) MUST NOT be marked as absent!
+      if (currentEvent && !isProgramAllowed(currentEvent.allowedPrograms, s.program)) {
+        // Exempt: Student is not part of this event's target program
+        continue;
+      }
+
+      // Student is in the target program and missed scanning -> mark as ABSENT
+      rosterRecords.push({
+        id: `absent-${s.id}`,
+        studentId: s.studentId,
+        studentName: s.fullName,
+        yearLevel: String(s.yearLevel || '1'),
+        program: s.program || 'BSIS',
+        eventName: selectedEvent !== 'all' ? selectedEvent : (activeEvent?.name || 'All Events'),
+        sessionName: session !== 'all' ? session : '—',
+        scannedAt: null as unknown as string,
+        officerName: '—',
+        status: 'absent',
+        isPresent: false,
+      });
+    }
+
+    // 4. Also include any scanned students that might not be in the certified roster
+    const extraScannedList: typeof rosterRecords = [];
+    for (const [key, scans] of scannedByStudent.entries()) {
+      if (!studentsMap.has(key)) {
+        const sortedScans = [...scans].sort((a, b) => {
+          const tA = a.scannedAt ? new Date(a.scannedAt).getTime() : 0;
+          const tB = b.scannedAt ? new Date(b.scannedAt).getTime() : 0;
+          return tB - tA;
+        });
+        const latest = sortedScans[0];
+        extraScannedList.push({
+          id: String(latest.id),
+          studentId: latest.studentId,
+          studentName: latest.studentName,
+          yearLevel: String(latest.yearLevel || '1'),
+          program: (latest as { program?: string }).program || 'BSIS',
+          eventName: Array.from(new Set(scans.map(x => x.eventName))).join(', '),
+          sessionName: Array.from(new Set(scans.map(x => x.sessionName))).join(', '),
+          scannedAt: latest.scannedAt,
+          officerName: latest.officerName || 'Officer 01',
+          status: 'present',
+          isPresent: true,
         });
       }
     }
 
-    return [...scannedList, ...absentList];
-  }, [rawRecords, studentsList, studentsMap, selectedEvent, session, activeEvent]);
+    return [...rosterRecords, ...extraScannedList];
+  }, [rawRecords, studentsList, studentsMap, selectedEvent, session, activeEvent, currentEvent]);
 
   // Filter and sort records
   const records = useMemo(() => {
@@ -2862,12 +3397,6 @@ function Attendance() {
         r.eventName.toLowerCase().includes(search.toLowerCase()) ||
         r.program.toLowerCase().includes(search.toLowerCase()) ||
         r.officerName.toLowerCase().includes(search.toLowerCase());
-
-      // Event filter
-      const matchesEvent = selectedEvent === 'all' || r.eventName.toLowerCase() === selectedEvent.toLowerCase();
-
-      // Session filter
-      const matchesSession = session === 'all' || r.sessionName.toLowerCase() === session.toLowerCase();
 
       // Year level filter
       const rYear = String(r.yearLevel || '').toLowerCase();
@@ -2887,7 +3416,7 @@ function Attendance() {
         (statusFilter === 'present' && r.status === 'present') ||
         (statusFilter === 'absent' && r.status === 'absent');
 
-      return matchesSearch && matchesEvent && matchesSession && matchesYear && matchesProg && matchesStatus;
+      return matchesSearch && matchesYear && matchesProg && matchesStatus;
     });
 
     return filtered.sort((a, b) => {
@@ -2918,7 +3447,7 @@ function Attendance() {
       if (sortBy === 'year-asc') return String(a.yearLevel).localeCompare(String(b.yearLevel));
       return 0;
     });
-  }, [allRecords, search, selectedEvent, session, yearLevel, program, statusFilter, sortBy]);
+  }, [allRecords, search, yearLevel, program, statusFilter, sortBy]);
 
   const presentCount = records.filter(x => x.status === 'present').length;
   const absentCount = records.filter(x => x.status === 'absent').length;
@@ -3006,6 +3535,14 @@ function Attendance() {
               <option key={ev.id} value={ev.name}>{ev.name}</option>
             ))}
           </select>
+
+          {/* Program Scope Indicator Banner / Pill */}
+          {currentEvent && currentEvent.allowedPrograms && currentEvent.allowedPrograms.toUpperCase() !== 'ALL' && (
+            <div className="flex items-center gap-1.5 rounded-lg border border-primary/25 bg-primary/10 px-2.5 py-1 text-[11px] font-bold text-primary" title={`This event is restricted to [${currentEvent.allowedPrograms}]. Students from other programs (such as BPED) are exempt and not marked absent.`}>
+              <GraduationCap className="size-3.5" />
+              <span>Restricted: <strong>{currentEvent.allowedPrograms}</strong> only (non-members not absent)</span>
+            </div>
+          )}
 
           {/* Session Select */}
           <select
@@ -3162,27 +3699,100 @@ function Attendance() {
       </div>
 
       {/* DEDICATED OFFICIAL PRINT REPORT DOCUMENT (visible ONLY when printing) */}
-      <div className="hidden print:block print:fixed print:inset-0 print:z-[9999] print:bg-white print:p-4">
+      <div className="hidden print:block w-full print:m-0 print:p-0 print-attendance-report-root">
         <style>{`
           @page {
             size: letter portrait;
-            margin: 0.3in;
+            margin: 0.35in;
           }
           @media print {
-            body * {
-              visibility: hidden !important;
+            /* Enable full multi-page document pagination across the entire DOM */
+            html, body, #root {
+              height: auto !important;
+              min-height: 0 !important;
+              max-height: none !important;
+              overflow: visible !important;
+              background: #ffffff !important;
+              color: #0f172a !important;
+              margin: 0 !important;
+              padding: 0 !important;
+              -webkit-print-color-adjust: exact !important;
+              print-color-adjust: exact !important;
             }
-            .print-report-sheet, .print-report-sheet * {
-              visibility: visible !important;
+
+            /* Hide on-screen UI */
+            aside,
+            header,
+            nav,
+            .print\\:hidden {
+              display: none !important;
             }
-            .print-report-sheet {
-              position: absolute !important;
-              left: 0 !important;
-              top: 0 !important;
+
+            /* Ensure all layout ancestors allow unlimited multi-page expansion */
+            body > div,
+            main,
+            main > div {
+              display: block !important;
+              height: auto !important;
+              min-height: 0 !important;
+              max-height: none !important;
+              overflow: visible !important;
+              padding: 0 !important;
+              margin: 0 !important;
+              border: none !important;
+              box-shadow: none !important;
               width: 100% !important;
-              background: white !important;
+              max-width: 100% !important;
+            }
+
+            .print-attendance-report-root {
+              display: block !important;
+              position: static !important;
+              width: 100% !important;
+              margin: 0 !important;
+              padding: 0 !important;
+              background: #ffffff !important;
+              overflow: visible !important;
+            }
+
+            .print-report-sheet {
+              display: block !important;
+              position: static !important;
+              width: 100% !important;
+              background: #ffffff !important;
               color: #0f172a !important;
               font-family: Arial, Helvetica, sans-serif !important;
+              overflow: visible !important;
+            }
+
+            /* Multi-page table styling */
+            .print-report-table {
+              width: 100% !important;
+              border-collapse: collapse !important;
+              page-break-inside: auto !important;
+              break-inside: auto !important;
+            }
+
+            .print-report-table thead {
+              display: table-header-group !important;
+            }
+
+            .print-report-table tr {
+              page-break-inside: avoid !important;
+              break-inside: avoid !important;
+            }
+
+            .print-report-table th,
+            .print-report-table td {
+              page-break-inside: avoid !important;
+              break-inside: avoid !important;
+            }
+
+            /* Official Signatures: prevent breaking across pages */
+            .print-signatures-block {
+              page-break-inside: avoid !important;
+              break-inside: avoid !important;
+              margin-top: 2rem !important;
             }
           }
         `}</style>
@@ -3214,10 +3824,14 @@ function Attendance() {
           </div>
 
           {/* Filter & Metric Summary Box */}
-          <div className="mb-4 rounded-lg border border-slate-300 bg-slate-50 p-2.5 text-xs grid grid-cols-5 gap-2">
+          <div className="mb-4 rounded-lg border border-slate-300 bg-slate-50 p-2.5 text-xs grid grid-cols-6 gap-2">
             <div>
               <span className="font-mono text-[8.5px] text-slate-500 block uppercase">Event Filter</span>
               <strong className="text-slate-900 truncate block">{selectedEvent === 'all' ? 'All Events' : selectedEvent}</strong>
+            </div>
+            <div>
+              <span className="font-mono text-[8.5px] text-slate-500 block uppercase">Allowed Programs</span>
+              <strong className="text-slate-900 truncate block">{currentEvent?.allowedPrograms || 'ALL'}</strong>
             </div>
             <div>
               <span className="font-mono text-[8.5px] text-slate-500 block uppercase">Session Filter</span>
@@ -3240,7 +3854,7 @@ function Attendance() {
           </div>
 
           {/* Official Clean Table of Students with Records */}
-          <table className="w-full text-left border-collapse text-[9.5px]">
+          <table className="w-full text-left border-collapse text-[9.5px] print-report-table">
             <thead>
               <tr className="border-y-2 border-slate-900 bg-slate-100 font-mono uppercase text-slate-800">
                 <th className="py-2 px-1.5 w-7 text-center">#</th>
@@ -3290,7 +3904,7 @@ function Attendance() {
           </table>
 
           {/* Official Signatures Section */}
-          <div className="mt-10 pt-4 border-t border-slate-300 grid grid-cols-2 gap-12 text-xs">
+          <div className="mt-10 pt-4 border-t border-slate-300 grid grid-cols-2 gap-12 text-xs print-signatures-block">
             <div>
               <div className="text-[9.5px] font-mono text-slate-500 uppercase">Prepared &amp; Verified By:</div>
               <div className="mt-7 border-b border-slate-900 w-64" />
@@ -3864,7 +4478,10 @@ function Scanner() {
 
   const totalScans = records.length;
   const presentScans = records.filter(r => r.status === 'present').length;
-  const absentScans = records.filter(r => r.status === 'absent').length || Math.max(0, students.length - presentScans);
+  const eligibleStudents = activeEvent
+    ? students.filter(s => isProgramAllowed(activeEvent.allowedPrograms, s.program))
+    : students;
+  const absentScans = records.filter(r => r.status === 'absent').length || Math.max(0, eligibleStudents.length - presentScans);
 
   // Auto-fill CSC Permanent QR token on page load
   useEffect(() => {
@@ -3981,17 +4598,17 @@ function Scanner() {
       setToken(extractedToken);
       setStudentIdInput(extractedStudentId);
 
-      // Debounce: prevent re-triggering while modal is already open
+      // Debounce: prevent duplicate scan of the SAME student within short window
       const now = Date.now();
       if (
         lastScannedId.current.id === extractedStudentId &&
-        now - lastScannedId.current.timestamp < 1500
+        now - lastScannedId.current.timestamp < 1200
       ) {
         return;
       }
       lastScannedId.current = { id: extractedStudentId, timestamp: now };
 
-      // Immediately trigger student photo verification popup
+      // Immediately trigger verify modal
       verify(extractedToken, extractedStudentId);
     };
 
@@ -4069,7 +4686,23 @@ function Scanner() {
     };
   }, [isScanning, token, showModal]);
 
-  // Review Modal Verify Handler — Pops up student photo modal
+  // Fast keyboard confirm/cancel listener when verification modal is open
+  useEffect(() => {
+    if (!showModal || !candidate) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        handleConfirmSave();
+      } else if (e.key === 'Escape') {
+        e.preventDefault();
+        handleDenyReject();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [showModal, candidate]);
+
+  // Always verify candidate student photo first before recording attendance
   const verify = (evtToken?: string, sId?: string) => {
     const activeToken = (evtToken || token).trim();
     const activeStudent = (sId || studentIdInput).trim();
@@ -4093,7 +4726,9 @@ function Scanner() {
             (err as { message?: string })?.message ||
             'No matching Event QR token or certified student found.';
           setMessage(`❌ ${apiError}`);
-          setTimeout(() => { isScanLocked.current = false; }, 2000);
+          setTimeout(() => {
+            isScanLocked.current = false;
+          }, 800);
         },
       }
     );
@@ -4122,7 +4757,7 @@ function Scanner() {
           setCandidate(undefined);
           setStudentIdInput('');
           setMessage(`✓ Attendance recorded: ${candidate.studentName} (${candidate.studentId})`);
-          setTimeout(() => { isScanLocked.current = false; }, 800);
+          setTimeout(() => { isScanLocked.current = false; }, 300);
         },
         onError: (err: unknown) => {
           if (soundEnabled) playBeep(220, 0.2, 'error');
@@ -4140,7 +4775,7 @@ function Scanner() {
     setShowModal(false);
     setCandidate(undefined);
     setMessage('Scan rejected by officer.');
-    setTimeout(() => { isScanLocked.current = false; }, 800);
+    setTimeout(() => { isScanLocked.current = false; }, 300);
   };
 
   return (
@@ -4190,9 +4825,12 @@ function Scanner() {
             <div className="mb-3 flex items-center justify-between">
               <div className="flex items-center gap-2 font-bold text-xs">
                 <span className="text-amber-500">📷</span> Live Camera Scanner
+                <span className="font-mono text-[9px] text-emerald-600 bg-emerald-500/10 px-2 py-0.5 rounded-full uppercase tracking-wider font-bold">
+                  {detectionEngine === 'native' ? '🚀 GPU Hardware' : '⚡ 480p Canvas'}
+                </span>
               </div>
-              <span className="font-mono text-[9px] text-emerald-600 bg-emerald-500/10 px-2 py-0.5 rounded-full uppercase tracking-wider font-bold">
-                {detectionEngine === 'native' ? '🚀 Hardware GPU Engine' : '⚡ Fast 480p Engine'}
+              <span className="flex items-center gap-1.5 rounded-full bg-emerald-500/10 border border-emerald-500/20 px-2.5 py-0.5 text-[10px] font-bold text-emerald-700 dark:text-emerald-400">
+                <CheckCircle2 className="size-3" /> Photo Verify First
               </span>
             </div>
 
@@ -4288,13 +4926,21 @@ function Scanner() {
 
               {/* Scanning status indicator (shows when camera is active) */}
               {isScanning ? (
-                <div className={`flex items-center justify-center gap-2 rounded-xl py-2.5 text-xs font-bold ${scan.isPending ? 'bg-amber-500/20 text-amber-700 dark:text-amber-300' : 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-300'}`}>
-                  <span className={`size-2 rounded-full ${scan.isPending ? 'bg-amber-500 animate-pulse' : 'bg-emerald-500 animate-pulse'}`} />
-                  {scan.isPending ? 'Verifying Student…' : 'Ready — Hold Student QR up to camera'}
+                <div className={`flex items-center justify-center gap-2 rounded-xl py-2.5 text-xs font-bold ${
+                  (scan.isPending || confirm.isPending)
+                    ? 'bg-amber-500/20 text-amber-700 dark:text-amber-300'
+                    : 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-300'
+                }`}>
+                  <span className={`size-2 rounded-full ${
+                    (scan.isPending || confirm.isPending) ? 'bg-amber-500 animate-pulse' : 'bg-emerald-500 animate-pulse'
+                  }`} />
+                  {(scan.isPending || confirm.isPending)
+                    ? 'Verifying Student Identity…'
+                    : 'Ready — Hold Student QR up to camera'}
                 </div>
               ) : (
-                <Button data-testid="button-verify-student" disabled={!studentIdInput.trim() || scan.isPending} onClick={() => verify()} className="h-10 w-full mt-1">
-                  <Search className="size-4" /> {scan.isPending ? 'Verifying...' : 'Verify Student ID'}
+                <Button data-testid="button-verify-student" disabled={!studentIdInput.trim() || scan.isPending || confirm.isPending} onClick={() => verify()} className="h-10 w-full mt-1">
+                  <Search className="size-4" /> {(scan.isPending || confirm.isPending) ? 'Verifying...' : 'Verify Student ID'}
                 </Button>
               )}
 
@@ -4472,6 +5118,9 @@ function Scanner() {
                 >
                   ✕ Deny / Reject
                 </button>
+                <div className="mt-1 text-[10px] font-mono text-muted-foreground flex items-center justify-center gap-1.5 select-none">
+                  <span className="rounded bg-muted px-1.5 py-0.5 font-bold">↵ Enter</span> to Confirm · <span className="rounded bg-muted px-1.5 py-0.5 font-bold">Esc</span> to Cancel
+                </div>
               </div>
             </div>
           </div>

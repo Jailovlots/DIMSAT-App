@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { asc, count, desc, eq, ilike, or, sql, and, ne } from "drizzle-orm";
+import { asc, count, countDistinct, desc, eq, ilike, or, sql, and, ne, lt, inArray } from "drizzle-orm";
 import {
   certifiedStudentsTable,
   studentImportBatchesTable,
@@ -52,6 +52,16 @@ function sanitizeProfilePhoto(photo?: string | null): string | null {
     await db.execute(sql`ALTER TABLE officers ADD COLUMN IF NOT EXISTS role TEXT NOT NULL DEFAULT 'officer';`);
     await db.execute(sql`ALTER TABLE officers ADD COLUMN IF NOT EXISTS password_hash TEXT;`);
     await db.execute(sql`ALTER TABLE attendance_events ADD COLUMN IF NOT EXISTS allowed_programs TEXT NOT NULL DEFAULT 'ALL';`);
+
+    // Performance indexes for rapid search, filtering, and report generation
+    await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_attendance_records_event_id ON attendance_records(event_id);`);
+    await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_attendance_records_student_id ON attendance_records(student_id);`);
+    await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_attendance_records_scanned_at ON attendance_records(scanned_at DESC);`);
+    await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_attendance_sessions_event_id ON attendance_sessions(event_id);`);
+    await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_certified_students_program ON certified_students(program);`);
+    await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_certified_students_year_level ON certified_students(year_level);`);
+    await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_certified_students_full_name ON certified_students(full_name);`);
+
     await db.execute(sql`
       CREATE TABLE IF NOT EXISTS attendance_qr_codes (
         id SERIAL PRIMARY KEY,
@@ -89,6 +99,25 @@ function sanitizeProfilePhoto(photo?: string | null): string | null {
         status: "active",
       });
     }
+
+    // Ensure default System Settings row exists
+    const existingSettings = await db.select().from(systemSettingsTable).limit(1);
+    if (!existingSettings[0]) {
+      await db.insert(systemSettingsTable).values({
+        schoolName: "ZDSPGC – Dimataling Campus",
+        campusName: "Dimataling Campus",
+        adminPassword: "admin123",
+        maxPhotoUploads: 2,
+        lateThresholdMinutes: 15,
+        automaticSessions: true,
+        manualSessionMode: false,
+        duplicateProtection: true,
+        attendanceConfirmation: true,
+      });
+    }
+
+    // Trigger auto date-based event activation on startup
+    await autoActivateEventsByDate();
   } catch (err) {
     console.error("Startup migration check error:", err);
   }
@@ -101,11 +130,19 @@ function isProgramAllowed(allowedProgramsStr: string | null | undefined, student
     return true;
   }
   if (!studentProgram) return false;
+  const studentProgUpper = studentProgram.trim().toUpperCase();
   const allowedList = allowedProgramsStr
     .split(",")
     .map((p) => p.trim().toUpperCase())
     .filter(Boolean);
-  return allowedList.includes(studentProgram.trim().toUpperCase());
+
+  return allowedList.some((allowed) => {
+    if (allowed === studentProgUpper) return true;
+    if ((allowed === "ACT" || allowed === "ACT-AD") && (studentProgUpper === "ACT" || studentProgUpper === "ACT-AD")) {
+      return true;
+    }
+    return false;
+  });
 }
 
 function parseMinutes(timeStr: string): number {
@@ -657,24 +694,132 @@ router.post("/students/:id/reset-photo-count", async (req, res, next) => {
 
 // ─── DASHBOARD ────────────────────────────────────────────────────────────────
 
+let cachedDashboard: { data: unknown; expiresAt: number } | null = null;
+
+export function invalidateDashboardCache(): void {
+  cachedDashboard = null;
+}
+
+// ─── SHARED LIST CACHES ───────────────────────────────────────────────────────
+// Short-lived (5-10 s) server-side caches for high-traffic list endpoints.
+// Mutation routes call these helpers to flush stale data immediately.
+
+let cachedStudents: { data: unknown; expiresAt: number } | null = null;
+export function invalidateStudentsCache(): void { cachedStudents = null; }
+
+let cachedEvents: { data: unknown; expiresAt: number } | null = null;
+export function invalidateEventsCache(): void {
+  cachedEvents = null;
+  lastAutoActivateTime = 0;
+}
+
+// ─── AUTO DATE-BASED EVENT ACTIVATION ────────────────────────────────────────
+// Automatically activates events whose eventDate equals today (Philippine time).
+// Automatically deactivates events whose eventDate is in the past (if still active).
+// Called on every GET /events cache miss, on server startup, and on event mutations.
+let lastAutoActivateDay = "";
+let lastAutoActivateTime = 0;
+async function autoActivateEventsByDate(force = false): Promise<void> {
+  try {
+    const { dateString: today } = getManilaTime();
+    const now = Date.now();
+    const dayChanged = lastAutoActivateDay !== today;
+    const isThrottled = now - lastAutoActivateTime < 30_000; // 30-second throttle to prevent DB spam
+
+    if (!force && !dayChanged && isThrottled) return;
+
+    lastAutoActivateDay = today;
+    lastAutoActivateTime = now;
+
+    // 1. Activate all events scheduled for today that are not yet active or cancelled
+    const toActivate = await db
+      .select({ id: eventsTable.id, name: eventsTable.name })
+      .from(eventsTable)
+      .where(
+        and(
+          eq(eventsTable.eventDate, today),
+          ne(eventsTable.status, "active"),
+          ne(eventsTable.status, "cancelled"),
+        ),
+      );
+
+    if (toActivate.length > 0) {
+      await db
+        .update(eventsTable)
+        .set({ status: "active", updatedAt: new Date() })
+        .where(
+          inArray(eventsTable.id, toActivate.map((e) => e.id)),
+        );
+      console.log(
+        `[Auto-Activate] Activated ${toActivate.length} event(s) for today (${today}): ` +
+        toActivate.map((e) => `"${e.name}"`).join(", "),
+      );
+    }
+
+    // 2. Deactivate events whose date has already passed (still marked active)
+    const toPastDeactivate = await db
+      .select({ id: eventsTable.id, name: eventsTable.name })
+      .from(eventsTable)
+      .where(
+        and(
+          lt(eventsTable.eventDate, today),
+          eq(eventsTable.status, "active"),
+        ),
+      );
+
+    if (toPastDeactivate.length > 0) {
+      await db
+        .update(eventsTable)
+        .set({ status: "completed", updatedAt: new Date() })
+        .where(
+          inArray(eventsTable.id, toPastDeactivate.map((e) => e.id)),
+        );
+      console.log(
+        `[Auto-Activate] Marked ${toPastDeactivate.length} past event(s) as completed: ` +
+        toPastDeactivate.map((e) => `"${e.name}"`).join(", "),
+      );
+    }
+
+    if (toActivate.length > 0 || toPastDeactivate.length > 0) {
+      cachedEvents = null;
+      invalidateDashboardCache();
+    }
+  } catch (err) {
+    console.error("[Auto-Activate] Error during auto event activation:", err);
+  }
+}
+
 router.get("/dashboard", async (_req, res, next) => {
   try {
-    const [{ value: studentCount }] = await db.select({ value: count() }).from(certifiedStudentsTable);
-    const [{ value: eventCount }] = await db.select({ value: count() }).from(eventsTable);
-    const [{ value: attendanceCount }] = await db.select({ value: count() }).from(attendanceRecordsTable);
+    const now = Date.now();
+    if (cachedDashboard && cachedDashboard.expiresAt > now) {
+      res.json(cachedDashboard.data);
+      return;
+    }
 
-    const activeSession = await db
-      .select({ name: eventsTable.name })
-      .from(attendanceSessionsTable)
-      .innerJoin(eventsTable, eq(eventsTable.id, attendanceSessionsTable.eventId))
-      .where(eq(attendanceSessionsTable.active, true))
-      .limit(1);
-
-    const latestEvents = await db
-      .select()
-      .from(eventsTable)
-      .orderBy(desc(eventsTable.createdAt))
-      .limit(1);
+    // Run independent metric queries in parallel to eliminate database latency waterfall
+    const [
+      [{ value: studentCount }],
+      [{ value: eventCount }],
+      [{ value: attendanceCount }],
+      activeSession,
+      latestEvents,
+    ] = await Promise.all([
+      db.select({ value: count() }).from(certifiedStudentsTable),
+      db.select({ value: count() }).from(eventsTable),
+      db.select({ value: count() }).from(attendanceRecordsTable),
+      db
+        .select({ name: eventsTable.name })
+        .from(attendanceSessionsTable)
+        .innerJoin(eventsTable, eq(eventsTable.id, attendanceSessionsTable.eventId))
+        .where(eq(attendanceSessionsTable.active, true))
+        .limit(1),
+      db
+        .select()
+        .from(eventsTable)
+        .orderBy(desc(eventsTable.createdAt))
+        .limit(1),
+    ]);
 
     const latestEvent = latestEvents[0];
     type SessionPayload = { id: number; name: string; startTime: string; endTime: string; enabled: boolean; active: boolean };
@@ -692,19 +837,39 @@ router.get("/dashboard", async (_req, res, next) => {
     };
 
     if (latestEvent) {
-      const sessions = await db
-        .select()
-        .from(attendanceSessionsTable)
-        .where(eq(attendanceSessionsTable.eventId, latestEvent.id));
+      const [sessions, [{ value: presentCount }]] = await Promise.all([
+        db
+          .select()
+          .from(attendanceSessionsTable)
+          .where(eq(attendanceSessionsTable.eventId, latestEvent.id)),
+        db
+          .select({ value: countDistinct(attendanceRecordsTable.studentId) })
+          .from(attendanceRecordsTable)
+          .where(eq(attendanceRecordsTable.eventId, latestEvent.id)),
+      ]);
 
-      const [{ value: totalStudents }] = await db
-        .select({ value: count() })
-        .from(certifiedStudentsTable);
-
-      const [{ value: presentCount }] = await db
-        .select({ value: count() })
-        .from(attendanceRecordsTable)
-        .where(eq(attendanceRecordsTable.eventId, latestEvent.id));
+      let eventTotalStudents = Number(studentCount);
+      const allowedPrograms = latestEvent.allowedPrograms || "ALL";
+      if (allowedPrograms.toUpperCase() !== "ALL") {
+        const programList = allowedPrograms
+          .split(",")
+          .map((p) => p.trim().toUpperCase())
+          .filter(Boolean);
+        const expanded = new Set<string>();
+        for (const p of programList) {
+          expanded.add(p);
+          if (p === "ACT") expanded.add("ACT-AD");
+          if (p === "ACT-AD") expanded.add("ACT");
+        }
+        const finalProgs = Array.from(expanded);
+        if (finalProgs.length > 0) {
+          const [{ value }] = await db
+            .select({ value: count() })
+            .from(certifiedStudentsTable)
+            .where(sql`UPPER(${certifiedStudentsTable.program}) IN (${sql.join(finalProgs.map(p => sql`${p.toUpperCase()}`), sql`, `)})`);
+          eventTotalStudents = Number(value);
+        }
+      }
 
       latestEventPayload = {
         id: latestEvent.id,
@@ -722,18 +887,25 @@ router.get("/dashboard", async (_req, res, next) => {
           enabled: s.enabled,
           active: s.active,
         })),
-        totalStudents: Number(totalStudents),
+        totalStudents: eventTotalStudents,
         presentCount: Number(presentCount),
       };
     }
 
-    res.json({
+    const responsePayload = {
       studentCount: Number(studentCount),
       eventCount: Number(eventCount),
       attendanceCount: Number(attendanceCount),
       activeSession: activeSession[0]?.name ?? null,
       latestEvent: latestEventPayload,
-    });
+    };
+
+    cachedDashboard = {
+      data: responsePayload,
+      expiresAt: now + 4000, // 4-second short cache
+    };
+
+    res.json(responsePayload);
   } catch (err) {
     next(err);
   }
@@ -759,6 +931,15 @@ router.get("/students", async (req, res, next) => {
     } as const;
 
     const orderCol = sortMap[sort] ?? certifiedStudentsTable.fullName;
+    const includePhoto = req.query["includePhoto"] === "true";
+    const isUnfiltered = !search && (!yearLevel || yearLevel === "all") && (!program || program === "all") && sort === "name" && !includePhoto;
+
+    // Return cached result for the common unfiltered default query (10-second TTL)
+    const now = Date.now();
+    if (isUnfiltered && cachedStudents && cachedStudents.expiresAt > now) {
+      res.json(cachedStudents.data);
+      return;
+    }
 
     const conditions = [];
     if (search && search.trim()) {
@@ -778,12 +959,30 @@ router.get("/students", async (req, res, next) => {
 
     const maxRows = limit && !isNaN(Number(limit)) ? Math.min(Number(limit), 10000) : 5000;
 
+    // Select lightweight roster columns — exclude multi-megabyte base64 photos unless explicitly requested
     const rows = await db
-      .select()
+      .select({
+        id: certifiedStudentsTable.id,
+        studentId: certifiedStudentsTable.studentId,
+        fullName: certifiedStudentsTable.fullName,
+        yearLevel: certifiedStudentsTable.yearLevel,
+        program: certifiedStudentsTable.program,
+        sex: certifiedStudentsTable.sex,
+        status: certifiedStudentsTable.status,
+        profileUploadCount: certifiedStudentsTable.profileUploadCount,
+        isRegistered: certifiedStudentsTable.isRegistered,
+        createdAt: certifiedStudentsTable.createdAt,
+        updatedAt: certifiedStudentsTable.updatedAt,
+        ...(includePhoto ? { profilePhoto: certifiedStudentsTable.profilePhoto } : {}),
+      })
       .from(certifiedStudentsTable)
       .where(conditions.length ? and(...conditions) : undefined)
       .orderBy(asc(orderCol))
       .limit(maxRows);
+
+    if (isUnfiltered) {
+      cachedStudents = { data: rows, expiresAt: now + 10_000 }; // 10-second cache
+    }
 
     res.json(rows);
   } catch (err) {
@@ -798,6 +997,8 @@ router.delete("/students/clear-all", async (_req, res, next) => {
       .from(certifiedStudentsTable);
 
     await db.delete(certifiedStudentsTable);
+    invalidateStudentsCache();
+    invalidateDashboardCache();
 
     await db.insert(auditLogsTable).values({
       action: "CLEAR_ALL_STUDENTS",
@@ -832,6 +1033,8 @@ router.delete("/students/:id", async (req, res, next) => {
     }
 
     await db.delete(certifiedStudentsTable).where(eq(certifiedStudentsTable.id, id));
+    invalidateStudentsCache();
+    invalidateDashboardCache();
 
     await db.insert(auditLogsTable).values({
       action: "REMOVE_STUDENT",
@@ -991,6 +1194,9 @@ router.post("/students/import", async (req, res, next) => {
       invalid,
     });
 
+    invalidateStudentsCache();
+    invalidateDashboardCache();
+
     await db.insert(auditLogsTable).values({
       action: "EXCEL_IMPORT",
       entityType: "student_import_batch",
@@ -1124,11 +1330,18 @@ async function buildEventPayload(event: typeof eventsTable.$inferSelect) {
       .split(",")
       .map((p) => p.trim())
       .filter(Boolean);
-    if (programList.length > 0) {
+    const expanded = new Set<string>();
+    for (const p of programList) {
+      expanded.add(p);
+      if (p.toUpperCase() === "ACT") expanded.add("ACT-AD");
+      if (p.toUpperCase() === "ACT-AD") expanded.add("ACT");
+    }
+    const finalProgs = Array.from(expanded);
+    if (finalProgs.length > 0) {
       const [{ value }] = await db
         .select({ value: count() })
         .from(certifiedStudentsTable)
-        .where(sql`UPPER(${certifiedStudentsTable.program}) IN (${sql.join(programList.map(p => sql`${p.toUpperCase()}`), sql`, `)})`);
+        .where(sql`UPPER(${certifiedStudentsTable.program}) IN (${sql.join(finalProgs.map(p => sql`${p.toUpperCase()}`), sql`, `)})`);
       totalStudents = Number(value);
     } else {
       const [{ value }] = await db
@@ -1139,7 +1352,7 @@ async function buildEventPayload(event: typeof eventsTable.$inferSelect) {
   }
 
   const [{ value: presentCount }] = await db
-    .select({ value: count() })
+    .select({ value: countDistinct(attendanceRecordsTable.studentId) })
     .from(attendanceRecordsTable)
     .where(eq(attendanceRecordsTable.eventId, event.id));
 
@@ -1167,12 +1380,103 @@ async function buildEventPayload(event: typeof eventsTable.$inferSelect) {
 
 router.get("/events", async (_req, res, next) => {
   try {
+    // Auto-activate/deactivate events based on today's date (Philippine time)
+    await autoActivateEventsByDate();
+
+    // Serve from cache if still fresh (5-second TTL)
+    const now = Date.now();
+    if (cachedEvents && cachedEvents.expiresAt > now) {
+      res.json(cachedEvents.data);
+      return;
+    }
+
     const events = await db
       .select()
       .from(eventsTable)
       .orderBy(desc(eventsTable.createdAt));
 
-    const payload = await Promise.all(events.map(buildEventPayload));
+    if (!events.length) {
+      cachedEvents = { data: [], expiresAt: now + 5_000 };
+      res.json([]);
+      return;
+    }
+
+    // High-performance batch query: execute sessions, student count, program breakdown, and present counts in parallel
+    const [allSessions, [{ value: totalStudentsCount }], programCountRows, presentCountRows] = await Promise.all([
+      db.select().from(attendanceSessionsTable),
+      db.select({ value: count() }).from(certifiedStudentsTable),
+      db
+        .select({ program: certifiedStudentsTable.program, value: count() })
+        .from(certifiedStudentsTable)
+        .groupBy(certifiedStudentsTable.program),
+      db
+        .select({ eventId: attendanceRecordsTable.eventId, value: count() })
+        .from(attendanceRecordsTable)
+        .groupBy(attendanceRecordsTable.eventId),
+    ]);
+
+    const sessionsByEvent = new Map<number, (typeof attendanceSessionsTable.$inferSelect)[]>();
+    for (const s of allSessions) {
+      const list = sessionsByEvent.get(s.eventId) || [];
+      list.push(s);
+      sessionsByEvent.set(s.eventId, list);
+    }
+
+    const presentCountByEvent = new Map<number, number>();
+    for (const p of presentCountRows) {
+      presentCountByEvent.set(p.eventId, Number(p.value));
+    }
+
+    const programCountMap = new Map<string, number>();
+    for (const pr of programCountRows) {
+      if (pr.program) programCountMap.set(pr.program.trim().toUpperCase(), Number(pr.value));
+    }
+
+    const payload = events.map((event) => {
+      const sessions = sessionsByEvent.get(event.id) || [];
+      const allowedPrograms = event.allowedPrograms || "ALL";
+
+      let totalStudents = Number(totalStudentsCount);
+      if (allowedPrograms.toUpperCase() !== "ALL") {
+        const programList = allowedPrograms
+          .split(",")
+          .map((p) => p.trim().toUpperCase())
+          .filter(Boolean);
+        const expanded = new Set<string>();
+        for (const p of programList) {
+          expanded.add(p);
+          if (p === "ACT") expanded.add("ACT-AD");
+          if (p === "ACT-AD") expanded.add("ACT");
+        }
+        const finalProgs = Array.from(expanded);
+        if (finalProgs.length > 0) {
+          totalStudents = finalProgs.reduce((acc, prog) => acc + (programCountMap.get(prog) || 0), 0);
+        }
+      }
+
+      return {
+        id: event.id,
+        name: event.name,
+        description: event.description,
+        eventDate: event.eventDate,
+        venue: event.venue,
+        status: event.status,
+        qrStatus: event.qrStatus,
+        allowedPrograms,
+        sessions: sessions.map((s) => ({
+          id: s.id,
+          name: s.name,
+          startTime: s.startTime,
+          endTime: s.endTime,
+          enabled: s.enabled,
+          active: s.active,
+        })),
+        totalStudents,
+        presentCount: presentCountByEvent.get(event.id) || 0,
+      };
+    });
+
+    cachedEvents = { data: payload, expiresAt: now + 5_000 }; // 5-second cache
     res.json(payload);
   } catch (err) {
     next(err);
@@ -1203,6 +1507,9 @@ router.post("/events", async (req, res, next) => {
         { name: "Evening OUT", startTime: "21:00", endTime: "22:00", enabled: true },
       ];
 
+    const { dateString: today } = getManilaTime();
+    const initialStatus = eventDate === today ? "active" : eventDate < today ? "completed" : "scheduled";
+
     const [event] = await db
       .insert(eventsTable)
       .values({
@@ -1210,6 +1517,7 @@ router.post("/events", async (req, res, next) => {
         description: description || "",
         eventDate,
         venue,
+        status: initialStatus,
         allowedPrograms: allowedPrograms && allowedPrograms.trim() ? allowedPrograms.trim() : "ALL",
         startTime: startTime || "07:00",
         endTime: endTime || "22:00",
@@ -1231,9 +1539,11 @@ router.post("/events", async (req, res, next) => {
       action: "CREATE_EVENT",
       entityType: "event",
       entityId: String(event.id),
-      details: `Created event: ${event.name} (${defaultSessions.length} sessions, programs: ${event.allowedPrograms})`,
+      details: `Created event: ${event.name} (${defaultSessions.length} sessions, programs: ${event.allowedPrograms}, status: ${event.status})`,
     });
 
+    invalidateEventsCache();
+    invalidateDashboardCache();
     res.status(201).json(await buildEventPayload(event));
   } catch (err) {
     next(err);
@@ -1259,6 +1569,14 @@ router.put("/events/:id", async (req, res, next) => {
       return;
     }
 
+    const { dateString: today } = getManilaTime();
+    const targetDate = eventDate ?? existingRows[0].eventDate;
+    const computedStatus = status ?? (
+      eventDate && eventDate !== existingRows[0].eventDate
+        ? (targetDate === today ? "active" : targetDate < today ? "completed" : "scheduled")
+        : existingRows[0].status
+    );
+
     const [updatedEvent] = await db
       .update(eventsTable)
       .set({
@@ -1266,7 +1584,7 @@ router.put("/events/:id", async (req, res, next) => {
         description: description ?? existingRows[0].description,
         eventDate: eventDate ?? existingRows[0].eventDate,
         venue: venue ?? existingRows[0].venue,
-        status: status ?? existingRows[0].status,
+        status: computedStatus,
         allowedPrograms: allowedPrograms !== undefined ? (allowedPrograms.trim() || "ALL") : existingRows[0].allowedPrograms,
         updatedAt: new Date(),
       })
@@ -1306,6 +1624,8 @@ router.put("/events/:id", async (req, res, next) => {
       details: `Updated event: ${updatedEvent.name} (Status: ${updatedEvent.status})`,
     });
 
+    invalidateEventsCache();
+    invalidateDashboardCache();
     res.json(await buildEventPayload(updatedEvent));
   } catch (err) {
     next(err);
@@ -1340,6 +1660,9 @@ router.patch("/events/:id/status", async (req, res, next) => {
       details: `Changed event #${eventId} status to "${status}"`,
     });
 
+    invalidateEventsCache();
+    invalidateDashboardCache();
+    invalidateActiveContextCache();
     res.json(await buildEventPayload(updated));
   } catch (err) {
     next(err);
@@ -1377,6 +1700,9 @@ router.delete("/events/:id", async (req, res, next) => {
       details: `Deleted event #${eventId}: "${eventName}" and all associated session records`,
     });
 
+    invalidateEventsCache();
+    invalidateDashboardCache();
+    invalidateActiveContextCache();
     res.json({ success: true, message: `Event "${eventName}" deleted successfully.` });
   } catch (err) {
     next(err);
@@ -1449,57 +1775,50 @@ router.post("/events/:eventId/qr", async (req, res, next) => {
 
 router.get("/qr-codes", async (_req, res, next) => {
   try {
-    const qrCodes = await db.select().from(attendanceQrCodesTable).orderBy(asc(attendanceQrCodesTable.id));
+    // Batched single-query approach to eliminate N+1 per QR code
+    const [qrCodes, activeAssignments] = await Promise.all([
+      db.select().from(attendanceQrCodesTable).orderBy(asc(attendanceQrCodesTable.id)),
+      db
+        .select({
+          assignment: qrAssignmentsTable,
+          eventName: eventsTable.name,
+          sessionName: attendanceSessionsTable.name,
+        })
+        .from(qrAssignmentsTable)
+        .innerJoin(eventsTable, eq(eventsTable.id, qrAssignmentsTable.eventId))
+        .leftJoin(attendanceSessionsTable, eq(attendanceSessionsTable.id, qrAssignmentsTable.sessionId))
+        .where(eq(qrAssignmentsTable.status, "active"))
+        .orderBy(desc(qrAssignmentsTable.activatedAt)),
+    ]);
 
-    const result = await Promise.all(
-      qrCodes.map(async (qr) => {
-        const activeAssignment = await db
-          .select()
-          .from(qrAssignmentsTable)
-          .where(and(eq(qrAssignmentsTable.qrCodeId, qr.id), eq(qrAssignmentsTable.status, "active")))
-          .orderBy(desc(qrAssignmentsTable.activatedAt))
-          .limit(1);
+    // Build a map: qrCodeId → latest active assignment row
+    const assignmentByQr = new Map<number, typeof activeAssignments[0]>();
+    for (const row of activeAssignments) {
+      if (!assignmentByQr.has(row.assignment.qrCodeId)) {
+        assignmentByQr.set(row.assignment.qrCodeId, row);
+      }
+    }
 
-        let event = null;
-        let session = null;
-
-        if (activeAssignment[0]) {
-          const evRows = await db
-            .select()
-            .from(eventsTable)
-            .where(eq(eventsTable.id, activeAssignment[0].eventId))
-            .limit(1);
-          event = evRows[0] || null;
-
-          if (activeAssignment[0].sessionId) {
-            const sessRows = await db
-              .select()
-              .from(attendanceSessionsTable)
-              .where(eq(attendanceSessionsTable.id, activeAssignment[0].sessionId))
-              .limit(1);
-            session = sessRows[0] || null;
+    const result = qrCodes.map((qr) => {
+      const row = assignmentByQr.get(qr.id);
+      return {
+        id: qr.id,
+        qrName: qr.qrName,
+        secureToken: qr.secureToken,
+        status: qr.status,
+        createdAt: qr.createdAt,
+        activeAssignment: row
+          ? {
+            id: row.assignment.id,
+            eventId: row.assignment.eventId,
+            eventName: row.eventName || "Unknown Event",
+            sessionId: row.assignment.sessionId,
+            sessionName: row.sessionName || "Auto (By Schedule)",
+            activatedAt: row.assignment.activatedAt,
           }
-        }
-
-        return {
-          id: qr.id,
-          qrName: qr.qrName,
-          secureToken: qr.secureToken,
-          status: qr.status,
-          createdAt: qr.createdAt,
-          activeAssignment: activeAssignment[0]
-            ? {
-              id: activeAssignment[0].id,
-              eventId: activeAssignment[0].eventId,
-              eventName: event?.name || "Unknown Event",
-              sessionId: activeAssignment[0].sessionId,
-              sessionName: session?.name || "Auto (By Schedule)",
-              activatedAt: activeAssignment[0].activatedAt,
-            }
-            : null,
-        };
-      })
-    );
+          : null,
+      };
+    });
 
     res.json(result);
   } catch (err) {
@@ -1842,7 +2161,6 @@ router.get("/attendance", async (req, res, next) => {
         studentId: certifiedStudentsTable.studentId,
         yearLevel: certifiedStudentsTable.yearLevel,
         program: certifiedStudentsTable.program,
-        profilePhoto: certifiedStudentsTable.profilePhoto,
         eventId: attendanceRecordsTable.eventId,
         sessionId: attendanceRecordsTable.sessionId,
         eventName: eventsTable.name,
@@ -1858,7 +2176,7 @@ router.get("/attendance", async (req, res, next) => {
       .leftJoin(officersTable, eq(officersTable.id, attendanceRecordsTable.officerId))
       .where(conditions.length ? and(...conditions) : undefined)
       .orderBy(desc(attendanceRecordsTable.scannedAt))
-      .limit(1000);
+      .limit(10000);
 
     res.json(
       rows.map((r) => ({

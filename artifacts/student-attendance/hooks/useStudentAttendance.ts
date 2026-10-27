@@ -80,8 +80,18 @@ export function useStudentAttendance(studentId: string | null | undefined, stude
         if (!studentProgram || !event.allowedPrograms || event.allowedPrograms.toUpperCase() === 'ALL') {
           return true;
         }
-        const allowedList = event.allowedPrograms.split(',').map((p) => p.trim().toUpperCase());
-        return allowedList.includes(studentProgram.trim().toUpperCase());
+        const studentProgUpper = studentProgram.trim().toUpperCase();
+        const allowedList = event.allowedPrograms
+          .split(',')
+          .map((p) => p.trim().toUpperCase())
+          .filter(Boolean);
+        return allowedList.some((allowed) => {
+          if (allowed === studentProgUpper) return true;
+          if ((allowed === 'ACT' || allowed === 'ACT-AD') && (studentProgUpper === 'ACT' || studentProgUpper === 'ACT-AD')) {
+            return true;
+          }
+          return false;
+        });
       });
 
       // Filter records for this specific student
