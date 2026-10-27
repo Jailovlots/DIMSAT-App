@@ -12,4 +12,5 @@ search?: string;
 yearLevel?: string;
 program?: string;
 sort?: ListStudentsSort;
+includePhoto?: boolean;
 };

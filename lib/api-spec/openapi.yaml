@@ -58,6 +58,10 @@ paths:
           schema:
             type: string
             enum: [name, studentId, yearLevel, program]
+        - in: query
+          name: includePhoto
+          description: When true, profilePhoto is included in each student record
+          schema: { type: boolean }
       responses:
         "200":
           description: Student list
