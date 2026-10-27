@@ -1167,7 +1167,7 @@ function Dashboard() {
       {q.isLoading ? <Loading rows={3} /> : q.isError ? <ErrorState retry={() => q.refetch()} /> : d ? (
         <>
           <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-            <StatCard label="Certified students" value={d.studentCount.toLocaleString()} detail="Verified in roster" icon={GraduationCap} />
+            <StatCard label="Registered students" value={d.studentCount.toLocaleString()} detail="Verified in roster" icon={GraduationCap} />
             <StatCard label="Events scheduled" value={d.eventCount} detail="Single QR events" icon={CalendarDays} accent="orange" />
             <StatCard label="Attendance records" value={d.attendanceCount.toLocaleString()} detail="Confirmed scans" icon={ClipboardCheck} accent="ink" />
             <StatCard label="Current session" value={d.activeSession ? 'LIVE' : 'IDLE'} detail={d.activeSession || 'No active session'} icon={Activity} />
